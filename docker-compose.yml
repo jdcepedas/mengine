@@ -1,0 +1,68 @@
+# Local containerized deployment.
+# Build first: ./gradlew :mengine-core:installDist :gateway:installDist
+# Then: docker-compose build && docker-compose up
+#
+# For Aeron IPC between Gateway and ME Core on same host, they must share a volume
+# for the media driver directory. ME Core runs the driver; Gateway connects to it
+# by setting GW_AERON_DIR to the same path (mounted volume).
+
+version: "3.8"
+
+services:
+  me-core:
+    build:
+      context: .
+      dockerfile: mengine-core/Dockerfile
+    ports:
+      - "8081:8081"
+    environment:
+      ME_QUERY_PORT: "8081"
+      ME_AERON_CHANNEL: "aeron:ipc"
+      ME_AERON_STREAM_ID: "10"
+      ME_AERON_DIR: "/dev/shm/aeron"
+      ME_JOURNAL_DIR: "/data/journal"
+      ME_DB_URL: "jdbc:postgresql://db:5432/mengine"
+      ME_DB_USER: mengine
+      ME_DB_PASSWORD: mengine
+    volumes:
+      - aeron-shared:/dev/shm/aeron
+      - journal-data:/data/journal
+    depends_on:
+      - db
+
+  gateway:
+    build:
+      context: .
+      dockerfile: gateway/Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      GW_HTTP_PORT: "8080"
+      GW_AERON_CHANNEL: "aeron:ipc"
+      GW_AERON_STREAM_ID: "10"
+      GW_AERON_DIR: "/dev/shm/aeron"
+      GW_ME_CORE_URL: "http://me-core:8081"
+      GW_DB_URL: "jdbc:postgresql://db:5432/mengine"
+      GW_DB_USER: mengine
+      GW_DB_PASSWORD: mengine
+    volumes:
+      - aeron-shared:/dev/shm/aeron
+    depends_on:
+      - me-core
+      - db
+
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: mengine
+      POSTGRES_USER: mengine
+      POSTGRES_PASSWORD: mengine
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  aeron-shared:
+  journal-data:
+  pgdata:

@@ -1,0 +1,20 @@
+plugins {
+    id 'java'
+    id 'application'
+}
+
+dependencies {
+    implementation project(':mengine-shared')
+    implementation 'com.lmax:disruptor:3.4.4'
+    implementation 'io.aeron:aeron-client:1.48.6'
+    implementation 'io.aeron:aeron-driver:1.48.6'
+    implementation 'org.glassfish.grizzly:grizzly-http-server:2.4.4'
+    implementation 'com.fasterxml.jackson.core:jackson-databind:2.15.2'
+    implementation 'org.postgresql:postgresql:42.6.0'
+
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.10.0'
+}
+
+application {
+    mainClass = 'com.mengine.core.MatchingEngineMain'
+}

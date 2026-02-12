@@ -75,6 +75,8 @@ graph TB
     OrderBook --> Analytics[Analytics Module]
 ```
 
+
+
 ## Project Structure
 
 ```
@@ -240,22 +242,17 @@ dependencies {
 ## Performance Optimizations
 
 1. **Memory Management:**
-
-   - Pre-allocate objects in Disruptor ring buffer
-   - Use object pooling for frequently created objects (Trade, Event)
-   - Avoid GC pressure with direct memory where possible
-
+  - Pre-allocate objects in Disruptor ring buffer
+  - Use object pooling for frequently created objects (Trade, Event)
+  - Avoid GC pressure with direct memory where possible
 2. **CPU Optimization:**
-
-   - Pin critical threads to CPU cores (affinity)
-   - Use `-XX:+UseG1GC` or `-XX:+UseZGC` for low-latency GC
-   - Profile with JProfiler/AsyncProfiler to identify hotspots
-
+  - Pin critical threads to CPU cores (affinity)
+  - Use `-XX:+UseG1GC` or `-XX:+UseZGC` for low-latency GC
+  - Profile with JProfiler/AsyncProfiler to identify hotspots
 3. **Lock-Free Algorithms:**
-
-   - OrderBook: ConcurrentSkipListMap (lock-free reads)
-   - PriceLevel queues: ConcurrentLinkedQueue
-   - Event publishing: Disruptor (lock-free)
+  - OrderBook: ConcurrentSkipListMap (lock-free reads)
+  - PriceLevel queues: ConcurrentLinkedQueue
+  - Event publishing: Disruptor (lock-free)
 
 ## Testing Strategy
 
@@ -277,21 +274,13 @@ Environment variables or config file for:
 ## Development Prompts for Cursor Agent
 
 1. **"Create the Order entity class with price, quantity, symbol, type, status, and timestamp fields. Make it immutable and thread-safe."**
-
 2. **"Implement OrderBook using ConcurrentSkipListMap for price levels. Each price level should maintain a FIFO queue of orders. Support add, remove, and best bid/ask queries."**
-
 3. **"Create a ReactiveBuffer interface and DisruptorBuffer implementation using LMAX Disruptor. Configure ring buffer size 65536 with single producer, multiple consumer pattern."**
-
 4. **"Implement MatchingEngine with price-time priority matching. For BUY orders, match against lowest SELL prices first. Handle partial fills and return results within 200ms timeout."**
-
 5. **"Create NotificationService with premium (real-time) and standard (delayed) subscription tiers. Use separate threads for each tier and publish Order and Trade events."**
-
 6. **"Build REST API with Grizzly server. Create POST /orders endpoint that accepts JSON orders, validates them, and enqueues to ReactiveBuffer. Return order ID immediately."**
-
 7. **"Add GET /orderbook/{symbol} endpoint that returns current order book state (bids and asks) in JSON format without blocking the matching engine."**
-
 8. **"Implement AnalyticsModule that tracks trade volume, price statistics, and fill rates. Store data in-memory with configurable retention period."**
-
 9. **"Create load test using JMeter-compatible scenarios. Test 1,300 orders/min baseline and verify < 0.5s ingestion latency. Test peak load of 5,000 matches/min."**
-
 10. **"Add configuration management for buffer sizes, timeouts, and thread pools. Support environment variables and config file with sensible defaults for M1 Pro hardware."**
+

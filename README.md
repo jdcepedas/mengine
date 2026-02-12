@@ -1,42 +1,68 @@
 # Matching Engine (ME)
 
-A high-performance matching engine for trading assets, similar to a stock exchange. Acts as an intermediary between sellers and buyers with an in-memory order book serving as legal guarantee.
+High-performance matching engine for trading assets (event-driven, containerized).
 
-## Features
+## Modules
 
-- **Order Management**: Validates and processes sell offers and buy requests
-- **In-Memory Order Book**: Lock-free data structures for each asset symbol
-- **Matching Engine**: Price-time priority matching with < 200ms latency
-- **Reactive Buffer**: LMAX Disruptor for burst absorption (65,536 capacity)
-- **Notification Service**: Premium (real-time) and Standard (delayed) tiers
-- **Analytics Module**: Trade volume, price statistics, fill rates
+- **mengine-shared** – Order, Trade, DTOs, JSON codecs for Aeron
+- **mengine-core** – Matching Engine Core: Aeron subscriber → Input Disruptor (Matcher + Journaler) → Output Disruptor (DB writer + Notification), Query API
+- **gateway** – HTTP API: POST /orders → Aeron; GET /orderbook, /orders, /trades → ME Core + DB
 
 ## Requirements
 
 - Java 21
 - Gradle 8.5+ (wrapper included)
+- Optional: Docker, PostgreSQL (for trade persistence)
 
-## Build & Run
+## Build
 
 ```bash
 ./gradlew build
-./gradlew run
+./gradlew :mengine-core:installDist
+./gradlew :gateway:installDist
 ```
 
-Server starts on port 8080 (configurable via `ME_SERVER_PORT`).
+## Run locally (two processes)
 
-## REST API
+**1. Start ME Core** (runs Media Driver, Query API on 8081, subscribes to Aeron for orders):
+
+```bash
+./gradlew :mengine-core:run
+# Or: mengine-core/build/install/mengine-core/bin/MatchingEngineMain
+```
+
+**2. Start Gateway** (connects to ME Core’s Media Driver, HTTP on 8080):
+
+```bash
+export GW_AERON_DIR=/path/to/same/aeron/dir   # Optional: if ME Core set ME_AERON_DIR, use same path
+./gradlew :gateway:run
+# Or: gateway/build/install/gateway/bin/GatewayMain
+```
+
+For same-host IPC, set a shared Aeron directory and start ME Core first so it owns the driver; then start Gateway with `GW_AERON_DIR` set to that same path (Gateway will not launch its own driver).
+
+## Run with Docker
+
+```bash
+./gradlew :mengine-core:installDist :gateway:installDist
+docker-compose build
+docker-compose up
+```
+
+- Gateway: http://localhost:8080  
+- ME Core Query API: http://localhost:8081  
+- PostgreSQL: localhost:5432 (user/pass: mengine/mengine)
+
+## REST API (Gateway)
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | /orders | Submit order (BUY/SELL) |
-| GET | /orders/{id} | Get order status |
-| GET | /orderbook/{symbol} | Get order book state |
-| GET | /trades/{symbol} | Get recent trades |
-| GET | /analytics/{symbol} | Get analytics report |
-| POST | /subscribe | Subscribe to events |
+| POST | /orders | Submit order (body: symbol, type, price, quantity) |
+| GET | /orders/{id} | Order status (from ME Core) |
+| GET | /orderbook/{symbol} | Order book snapshot (from ME Core) |
+| GET | /trades/{symbol} | Recent trades (from DB) |
 
-### Order Request (POST /orders)
+### Order request (POST /orders)
 
 ```json
 {
@@ -49,39 +75,32 @@ Server starts on port 8080 (configurable via `ME_SERVER_PORT`).
 
 ## Configuration
 
-Environment variables (override defaults):
+**ME Core** – env / `mengine.properties`:
 
-- `ME_BUFFER_SIZE` - Ring buffer size (default: 65536)
-- `ME_MATCHING_TIMEOUT_MS` - Match timeout (default: 200)
-- `ME_STANDARD_DELAY_MS` - Standard tier delay (default: 1000)
-- `ME_SERVER_PORT` - HTTP port (default: 8080)
-- `ME_MATCHING_THREADS` - Matching threads (default: 4)
-- `ME_TRADE_STORE_SIZE` - Max trades per symbol (default: 1000)
+- `ME_QUERY_PORT` (default 8081)
+- `ME_AERON_CHANNEL` (default `aeron:ipc`)
+- `ME_AERON_STREAM_ID` (default 10)
+- `ME_AERON_DIR` – media driver directory (for shared driver with Gateway)
+- `ME_JOURNAL_DIR` – order journal directory (default `journal`)
+- `ME_DB_URL`, `ME_DB_USER`, `ME_DB_PASSWORD` – trades DB (empty = in-memory)
+- `ME_BUFFER_SIZE`, `ME_MATCHING_TIMEOUT_MS`, `ME_STANDARD_DELAY_MS`
 
-Config file: `mengine.properties` or `~/.mengine.properties`
+**Gateway** – env / `gateway.properties`:
 
-## Load Testing
-
-Run with JMeter or the included load test:
-
-```bash
-./gradlew run &   # Start server
-./gradlew test --tests "com.mengine.LoadTest"  # Run load tests (remove @Disabled first)
-```
-
-Target SLAs:
-- Ingestion: < 0.5s (sell), < 0.3s (buy)
-- Matching: < 200ms
-- Throughput: 1,300 orders/min baseline, 5,000 matches/min peak
+- `GW_HTTP_PORT` (default 8080)
+- `GW_AERON_CHANNEL`, `GW_AERON_STREAM_ID`
+- `GW_AERON_DIR` – connect to existing driver (no launch)
+- `GW_ME_CORE_URL` (default http://localhost:8081)
+- `GW_DB_URL`, `GW_DB_USER`, `GW_DB_PASSWORD` – for GET /trades
 
 ## Architecture
 
 ```
-Client → Reactive Buffer (Disruptor) → Order Processor
-                                            ↓
-                              Matching Engine ↔ Order Book
-                                            ↓
-                              Notification Service → Subscribers
-                                            ↓
-                              Analytics Module
+Gateway (HTTP) → Aeron (orders) → ME Core
+  ↓                    ↓
+  GET /orderbook,      Aeron poller → Input Disruptor
+  GET /orders    ←         ↓
+  (ME Core)           Matcher + Journaler (orders to disk)
+  GET /trades              ↓
+  (DB)               Output Disruptor → DB writer + Notification
 ```
