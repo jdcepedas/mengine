@@ -24,13 +24,15 @@ public class GatewayApplication {
             driverCtx.aeronDirectoryName(aeronDir);
             embeddedMediaDriver = MediaDriver.launch(driverCtx);
             System.setProperty("gateway.aeron.dir", aeronDir);
-            System.out.println("Aeron Media Driver directory: " + aeronDir);
+            System.out.println("[Gateway] Media Driver LAUNCHED at: " + aeronDir);
+            System.out.println("[Gateway] >>> Start ME Core with: export ME_AERON_DIR=" + aeronDir);
         } else {
             driverCtx.dirDeleteOnStart(true);
             embeddedMediaDriver = MediaDriver.launch(driverCtx);
             aeronDir = driverCtx.aeronDirectoryName();
             System.setProperty("gateway.aeron.dir", aeronDir);
-            System.out.println("Aeron Media Driver directory: " + aeronDir);
+            System.out.println("[Gateway] Media Driver LAUNCHED at: " + aeronDir);
+            System.out.println("[Gateway] >>> Start ME Core with: export ME_AERON_DIR=" + aeronDir);
         }
         SpringApplication.run(GatewayApplication.class, args);
     }

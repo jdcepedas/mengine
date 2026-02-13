@@ -24,20 +24,34 @@ High-performance matching engine for trading assets (event-driven, containerized
 
 ## Run locally (two processes)
 
-**1. Start Gateway** (runs Media Driver, HTTP on 8080). Note the printed `Aeron Media Driver directory: ...`:
+**Order matters:** Gateway must start first and own the Media Driver. ME Core must connect to that same directory.
+
+**1. Start Gateway** (runs Media Driver, HTTP on 8080):
 
 ```bash
 ./gradlew :gateway:run
 ```
 
-**2. Start ME Core** (connects to Gateway’s driver, Query API on 8081, subscribes for orders). Use the exact path from step 1:
+In the console you must see:
+- `[Gateway] Media Driver LAUNCHED at: /some/path/...`
+- `[Gateway] >>> Start ME Core with: export ME_AERON_DIR=/some/path/...`
+- `[Gateway] Aeron client connecting to directory: /some/path/...`
+
+Copy the **exact** path from that output.
+
+**2. In a second terminal**, start ME Core using that path:
 
 ```bash
-export ME_AERON_DIR=/path/Gateway/printed   # use the "Aeron Media Driver directory" from step 1
+export ME_AERON_DIR=/paste/the/exact/path/from/Gateway
 ./gradlew :mengine-core:run
 ```
 
-Gateway owns the Media Driver; ME Core connects to it and subscribes on the same channel/stream so POST /orders is delivered to the matcher.
+In ME Core’s console you must see:
+- `[ME Core] Subscription created: ... aeronDir=/same/path`
+- `[ME Core] Connecting to EXISTING driver (Gateway must have started first)`
+- After a few seconds: `[ME Core] Subscription has image(s): imageCount=1 (publication connected - ready for orders)`
+
+**3. Only after** you see `imageCount=1` in ME Core, send POST /orders to the Gateway. If you see `[ME Core] Waiting for publication (imageCount=0)` every 5s, the directory does not match or Gateway was not started first – stop ME Core, start Gateway first, then ME Core with the path Gateway printed.
 
 ## Run with Docker
 

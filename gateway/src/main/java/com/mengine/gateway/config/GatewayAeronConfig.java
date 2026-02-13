@@ -33,6 +33,8 @@ public class GatewayAeronConfig {
         if (dir == null || dir.isBlank()) {
             dir = System.getProperty("gateway.aeron.dir");
         }
+        System.out.println("[Gateway] Aeron client connecting to directory: " + dir
+            + " (ME Core must use the SAME path in ME_AERON_DIR)");
         return Aeron.connect(new Aeron.Context().aeronDirectoryName(dir));
     }
 

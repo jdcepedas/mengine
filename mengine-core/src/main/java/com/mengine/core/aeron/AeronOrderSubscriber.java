@@ -49,6 +49,14 @@ public class AeronOrderSubscriber implements AutoCloseable {
         }
         aeron = Aeron.connect(ctx);
         subscription = aeron.addSubscription(channel, streamId);
+        String dirDisplay = aeronDirectoryName != null && !aeronDirectoryName.isBlank()
+            ? aeronDirectoryName
+            : "(default - driver launched by this process)";
+        System.out.println("[ME Core] Subscription created: channel=" + channel + " streamId=" + streamId
+            + " aeronDir=" + dirDisplay);
+        if (aeronDirectoryName != null && !aeronDirectoryName.isBlank()) {
+            System.out.println("[ME Core] Connecting to EXISTING driver (Gateway must have started first)");
+        }
     }
 
     /**
@@ -62,7 +70,19 @@ public class AeronOrderSubscriber implements AutoCloseable {
             callback.onOrder(order);
         };
 
+        boolean loggedConnected = false;
+        long lastLogTime = 0;
         while (running.get()) {
+            int imageCount = subscription.imageCount();
+            if (imageCount >= 1 && !loggedConnected) {
+                System.out.println("[ME Core] Subscription has image(s): imageCount=" + imageCount + " (publication connected - ready for orders)");
+                loggedConnected = true;
+            }
+            long now = System.currentTimeMillis();
+            if (imageCount == 0 && now - lastLogTime > 5_000) {
+                System.out.println("[ME Core] Waiting for publication (imageCount=0) - ensure Gateway started FIRST and ME_AERON_DIR matches Gateway's directory");
+                lastLogTime = now;
+            }
             int fragmentsRead = subscription.poll(handler, 10);
             idleStrategy.idle(fragmentsRead);
         }

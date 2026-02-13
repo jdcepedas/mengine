@@ -36,6 +36,7 @@ public class MatchingEngine {
     }
 
     public MatchResult match(Order order) {
+        System.out.println("[ME Core] Income Matching order: " + order.getSymbol() + " " + order.getType() + " " + order.getPrice() + " " + order.getQuantity());
         long startNs = System.nanoTime();
         long deadlineNs = startNs + matchingTimeoutNs;
 
@@ -102,6 +103,9 @@ public class MatchingEngine {
         }
 
         long elapsedNs = System.nanoTime() - startNs;
+        // NOTE - use return directly instead of creating object
+        System.out.println("[ME Core] MatchResult: " + trades.size() + " trades were  matched " + " elapsedNs=" + elapsedNs);
+        trades.forEach(t -> System.out.println("[ME Core] Trade: " + t.getId() + " " + t.getSymbol() + " " + t.getPrice() + " " + t.getQuantity()));
         return new MatchResult(currentOrder, trades, false, !trades.isEmpty(), elapsedNs);
     }
 
