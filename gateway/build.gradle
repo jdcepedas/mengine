@@ -1,7 +1,16 @@
 plugins {
     id 'java'
+    id 'application'
     id 'org.springframework.boot' version '3.2.5'
     id 'io.spring.dependency-management' version '1.1.4'
+}
+
+application {
+    mainClass = 'com.mengine.gateway.GatewayApplication'
+    applicationDefaultJvmArgs = [
+        '--add-opens=java.base/jdk.internal.misc=ALL-UNNAMED',
+        '--add-opens=java.base/jdk.internal.reflect=ALL-UNNAMED'
+    ]
 }
 
 dependencies {
@@ -19,6 +28,15 @@ dependencies {
 
 bootJar {
     archiveBaseName = 'gateway'
+}
+
+// Agrona/Aeron need access to JDK internals on Java 17+. Apply to ALL JavaExec tasks
+// so IntelliJ "Run GatewayApplication.main()" (which uses a Gradle JavaExec) gets these too.
+tasks.withType(JavaExec).configureEach {
+    jvmArgs(
+        '--add-opens=java.base/jdk.internal.misc=ALL-UNNAMED',
+        '--add-opens=java.base/jdk.internal.reflect=ALL-UNNAMED'
+    )
 }
 
 test {

@@ -23,11 +23,12 @@ public class GatewayApplication {
             embeddedMediaDriver = MediaDriver.launch(driverCtx);
             aeronDir = driverCtx.aeronDirectoryName();
             System.setProperty("gateway.aeron.dir", aeronDir);
+            System.out.println("Aeron Media Driver directory: " + aeronDir);
         }
         SpringApplication.run(GatewayApplication.class, args);
     }
 
-    static MediaDriver getEmbeddedMediaDriver() {
+    public static MediaDriver getEmbeddedMediaDriver() {
         return embeddedMediaDriver;
     }
 }
