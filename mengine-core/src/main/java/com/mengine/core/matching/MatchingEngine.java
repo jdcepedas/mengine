@@ -87,6 +87,9 @@ public class MatchingEngine {
 
                 if (newCurrentRemaining.compareTo(BigDecimal.ZERO) == 0) {
                     long elapsedNs = System.nanoTime() - startNs;
+                    System.out.println("The order was fully matched");
+                    System.out.println("[ME Core] MatchResult: " + trades.size() + " trades were  matched " + " elapsedNs=" + elapsedNs);
+                    trades.forEach(t -> System.out.println("[ME Core] Trade: " + t.getId() + " " + t.getSymbol() + " " + t.getPrice() + " " + t.getQuantity()));
                     return new MatchResult(currentOrder, trades, true, false, elapsedNs);
                 }
             }
@@ -95,6 +98,9 @@ public class MatchingEngine {
         if (currentOrder.getRemainingQuantity().compareTo(order.getQuantity()) < 0) {
             book.add(currentOrder);
             long elapsedNs = System.nanoTime() - startNs;
+            System.out.println("The order was partially matched");
+            System.out.println("[ME Core] MatchResult: " + trades.size() + " trades were  matched " + " elapsedNs=" + elapsedNs);
+            trades.forEach(t -> System.out.println("[ME Core] Trade: " + t.getId() + " " + t.getSymbol() + " " + t.getPrice() + " " + t.getQuantity()));
             return new MatchResult(currentOrder, trades, false, true, elapsedNs);
         }
 

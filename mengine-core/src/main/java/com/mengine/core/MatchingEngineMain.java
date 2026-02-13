@@ -1,5 +1,6 @@
 package com.mengine.core;
 
+import com.lmax.disruptor.InsufficientCapacityException;
 import com.lmax.disruptor.RingBuffer;
 import com.lmax.disruptor.dsl.Disruptor;
 import com.lmax.disruptor.util.DaemonThreadFactory;
@@ -24,6 +25,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.locks.LockSupport;
 
 /**
  * Matching Engine Core: Aeron subscriber -> Input Disruptor (Matcher + Journaler)
@@ -106,12 +108,7 @@ public class MatchingEngineMain {
                             MatchResult result = matchingEngine.match(order);
                             orderRegistry.put(result.getOrder());
                             for (Trade trade : result.getTrades()) {
-                                long seq = outputRing.next();
-                                try {
-                                    outputRing.get(seq).setTrade(trade);
-                                } finally {
-                                    outputRing.publish(seq);
-                                }
+                                offerTradeToOutput(outputRing, trade);
                             }
                         }
                         event.clear();
@@ -134,8 +131,9 @@ public class MatchingEngineMain {
                             } finally {
                                 inputRing.publish(seq);
                             }
-                        } catch (com.lmax.disruptor.InsufficientCapacityException ignored) {
-                            System.out.println("Insufficient capacity exception: " + ignored.getMessage());
+                        } catch (com.lmax.disruptor.InsufficientCapacityException e) {
+                            System.out.println("[ME Core] DROPPED order (input ring full): orderId=" + order.getId()
+                                + " type=" + order.getType() + " symbol=" + order.getSymbol());
                         }
                     }
             );
@@ -155,6 +153,32 @@ public class MatchingEngineMain {
                 driver.close();
             }
         }
+    }
+
+    /**
+     * Offer a trade to the output ring without blocking. If the ring is full we retry with
+     * short sleeps so the input handler does not block (which would fill the input ring and
+     * cause "buffer full" / InsufficientCapacityException when SELLs match many BUYs.
+     */
+    private static void offerTradeToOutput(RingBuffer<TradeEvent> outputRing, Trade trade) {
+        int maxRetries = 50_000;
+        for (int i = 0; i < maxRetries; i++) {
+            try {
+                long seq = outputRing.tryNext();
+                try {
+                    outputRing.get(seq).setTrade(trade);
+                } finally {
+                    outputRing.publish(seq);
+                }
+                return;
+            } catch (InsufficientCapacityException e) {
+                if (i > 0 && i % 5_000 == 0) {
+                    System.out.println("[ME Core] offerTradeToOutput retry " + i + " (output ring full) trade=" + trade.getId());
+                }
+                LockSupport.parkNanos(100_000);
+            }
+        }
+        System.err.println("[ME Core] Output ring full after " + maxRetries + " retries - dropping trade " + trade.getId());
     }
 
     private static TradeRepository createTradeRepository(EngineConfig config) {
