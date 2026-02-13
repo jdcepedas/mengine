@@ -1,14 +1,39 @@
 # Local containerized deployment.
-# Build first: ./gradlew :mengine-core:installDist :gateway:installDist
-# Then: docker-compose build && docker-compose up
+# Build: ./gradlew :mengine-core:installDist :gateway:bootJar && docker-compose build
+# Run:   docker-compose up
 #
-# For Aeron IPC between Gateway and ME Core on same host, they must share a volume
-# for the media driver directory. ME Core runs the driver; Gateway connects to it
-# by setting GW_AERON_DIR to the same path (mounted volume).
+# Startup order: Gateway first (owns Media Driver in shared volume), then ME Core (connects).
+# Gateway healthcheck ensures the driver is up before ME Core starts.
 
 version: "3.8"
 
 services:
+  gateway:
+    build:
+      context: .
+      dockerfile: gateway/Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      GW_HTTP_PORT: "8080"
+      GW_AERON_CHANNEL: "aeron:ipc"
+      GW_AERON_STREAM_ID: "10"
+      GW_AERON_DIR: "/dev/shm/aeron"
+      GW_ME_CORE_URL: "http://me-core:8081"
+      GW_DB_URL: "jdbc:postgresql://db:5432/mengine"
+      GW_DB_USER: mengine
+      GW_DB_PASSWORD: mengine
+    volumes:
+      - aeron-shared:/dev/shm/aeron
+    depends_on:
+      - db
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:8080/orderbook/AAPL || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
   me-core:
     build:
       context: .
@@ -28,28 +53,10 @@ services:
       - aeron-shared:/dev/shm/aeron
       - journal-data:/data/journal
     depends_on:
-      - db
-
-  gateway:
-    build:
-      context: .
-      dockerfile: gateway/Dockerfile
-    ports:
-      - "8080:8080"
-    environment:
-      GW_HTTP_PORT: "8080"
-      GW_AERON_CHANNEL: "aeron:ipc"
-      GW_AERON_STREAM_ID: "10"
-      GW_AERON_DIR: "/dev/shm/aeron"
-      GW_ME_CORE_URL: "http://me-core:8081"
-      GW_DB_URL: "jdbc:postgresql://db:5432/mengine"
-      GW_DB_USER: mengine
-      GW_DB_PASSWORD: mengine
-    volumes:
-      - aeron-shared:/dev/shm/aeron
-    depends_on:
-      - me-core
-      - db
+      gateway:
+        condition: service_healthy
+      db:
+        condition: service_started
 
   db:
     image: postgres:15-alpine

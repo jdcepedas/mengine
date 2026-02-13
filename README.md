@@ -24,22 +24,20 @@ High-performance matching engine for trading assets (event-driven, containerized
 
 ## Run locally (two processes)
 
-**1. Start ME Core** (runs Media Driver, Query API on 8081, subscribes to Aeron for orders):
+**1. Start Gateway** (runs Media Driver, HTTP on 8080). Note the printed `Aeron Media Driver directory: ...`:
 
 ```bash
-./gradlew :mengine-core:run
-# Or: mengine-core/build/install/mengine-core/bin/MatchingEngineMain
-```
-
-**2. Start Gateway** (connects to ME Core’s Media Driver, HTTP on 8080):
-
-```bash
-export GW_AERON_DIR=/path/to/same/aeron/dir   # Optional: if ME Core set ME_AERON_DIR, use same path
 ./gradlew :gateway:run
-# Or: gateway/build/install/gateway/bin/GatewayMain
 ```
 
-For same-host IPC, set a shared Aeron directory and start ME Core first so it owns the driver; then start Gateway with `GW_AERON_DIR` set to that same path (Gateway will not launch its own driver).
+**2. Start ME Core** (connects to Gateway’s driver, Query API on 8081, subscribes for orders). Use the exact path from step 1:
+
+```bash
+export ME_AERON_DIR=/path/Gateway/printed   # use the "Aeron Media Driver directory" from step 1
+./gradlew :mengine-core:run
+```
+
+Gateway owns the Media Driver; ME Core connects to it and subscribes on the same channel/stream so POST /orders is delivered to the matcher.
 
 ## Run with Docker
 

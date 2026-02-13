@@ -17,4 +17,21 @@ dependencies {
 
 application {
     mainClass = 'com.mengine.core.MatchingEngineMain'
+    applicationDefaultJvmArgs = [
+        '--add-opens=java.base/jdk.internal.misc=ALL-UNNAMED',
+        '--add-opens=java.base/jdk.internal.reflect=ALL-UNNAMED'
+    ]
+}
+
+// Apply add-opens to ALL JavaExec tasks so IntelliJ "Run MatchingEngineMain.main()" gets them too.
+tasks.withType(JavaExec).configureEach {
+    jvmArgs(
+        '--add-opens=java.base/jdk.internal.misc=ALL-UNNAMED',
+        '--add-opens=java.base/jdk.internal.reflect=ALL-UNNAMED'
+    )
+}
+
+// Ensure :mengine-core:run uses the correct main class when running from CLI.
+tasks.named('run', JavaExec).configure {
+    mainClass = 'com.mengine.core.MatchingEngineMain'
 }

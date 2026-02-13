@@ -23,6 +23,7 @@ import io.aeron.driver.MediaDriver;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ThreadFactory;
 
 /**
  * Matching Engine Core: Aeron subscriber -> Input Disruptor (Matcher + Journaler)
@@ -33,23 +34,34 @@ public class MatchingEngineMain {
     public static void main(String[] args) throws Exception {
         EngineConfig config = EngineConfig.load();
 
-        MediaDriver.Context driverCtx = new MediaDriver.Context();
         String aeronDirConfig = config.getAeronDir();
+        MediaDriver driver;
+        String aeronDir;
         if (aeronDirConfig != null && !aeronDirConfig.isBlank()) {
-            driverCtx.aeronDirectoryName(aeronDirConfig);
+            // Connect to existing driver (e.g. Gateway's) - do not launch our own
+            driver = null;
+            aeronDir = aeronDirConfig;
+            System.out.println("Aeron Media Driver directory (connect only): " + aeronDir);
+        } else {
+            MediaDriver.Context driverCtx = new MediaDriver.Context();
+            driverCtx.dirDeleteOnStart(true);
+            driver = MediaDriver.launch(driverCtx);
+            aeronDir = driverCtx.aeronDirectoryName();
+            System.out.println("Aeron Media Driver directory: " + aeronDir);
         }
-        MediaDriver driver = MediaDriver.launch(driverCtx);
-        String aeronDir = driverCtx.aeronDirectoryName();
         try {
             OrderRegistry orderRegistry = new OrderRegistry();
             MatchingEngine matchingEngine = new MatchingEngine(config.getMatchingTimeoutMs());
 
             // Optional journal replay
+
             Journaler journaler = new Journaler(Path.of(config.getJournalDir()));
+            /*
             for (Order order : journaler.getJournal().replay()) {
                 orderRegistry.put(order);
                 matchingEngine.match(order);
             }
+            */
 
             TradeRepository tradeRepository = createTradeRepository(config);
             NotificationService notificationService = new NotificationService(config.getStandardDelayMs());
@@ -123,6 +135,7 @@ public class MatchingEngineMain {
                                 inputRing.publish(seq);
                             }
                         } catch (com.lmax.disruptor.InsufficientCapacityException ignored) {
+                            System.out.println("Insufficient capacity exception: " + ignored.getMessage());
                         }
                     }
             );
@@ -138,7 +151,9 @@ public class MatchingEngineMain {
 
             Thread.currentThread().join();
         } finally {
-            driver.close();
+            if (driver != null) {
+                driver.close();
+            }
         }
     }
 

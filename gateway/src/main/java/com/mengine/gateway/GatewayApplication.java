@@ -18,8 +18,15 @@ public class GatewayApplication {
     public static void main(String[] args) {
         GatewayConfig config = GatewayConfig.load();
         String aeronDir = config.getAeronDir();
-        if (aeronDir == null || aeronDir.isBlank()) {
-            MediaDriver.Context driverCtx = new MediaDriver.Context();
+        MediaDriver.Context driverCtx = new MediaDriver.Context();
+        if (aeronDir != null && !aeronDir.isBlank()) {
+            // Launch driver in this dir (e.g. /dev/shm/aeron in Docker shared volume)
+            driverCtx.aeronDirectoryName(aeronDir);
+            embeddedMediaDriver = MediaDriver.launch(driverCtx);
+            System.setProperty("gateway.aeron.dir", aeronDir);
+            System.out.println("Aeron Media Driver directory: " + aeronDir);
+        } else {
+            driverCtx.dirDeleteOnStart(true);
             embeddedMediaDriver = MediaDriver.launch(driverCtx);
             aeronDir = driverCtx.aeronDirectoryName();
             System.setProperty("gateway.aeron.dir", aeronDir);
