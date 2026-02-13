@@ -39,6 +39,12 @@ tasks.withType(JavaExec).configureEach {
     )
 }
 
+// Ensure :gateway:run uses the correct main class (avoids "main class -Xmx64m" when
+// application plugin and Gradle daemon JVM args get mixed up).
+tasks.named('run', JavaExec).configure {
+    mainClass = 'com.mengine.gateway.GatewayApplication'
+}
+
 test {
     useJUnitPlatform()
 }

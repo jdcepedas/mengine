@@ -39,7 +39,7 @@ In the console you must see:
 
 Copy the **exact** path from that output.
 
-**2. In a second terminal**, start ME Core using that path:
+**2. In a second terminal**, start ME Core using that path. You must set `ME_AERON_DIR` so ME Core connects to the same Media Driver as the Gateway: either **export** it in the shell, or set it in your IDE (e.g. IntelliJ: Run → Edit Configurations → select mengine-core → Environment variables: `ME_AERON_DIR=/paste/the/exact/path/from/Gateway`).
 
 ```bash
 export ME_AERON_DIR=/paste/the/exact/path/from/Gateway
