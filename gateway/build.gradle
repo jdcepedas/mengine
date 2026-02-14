@@ -28,6 +28,7 @@ dependencies {
 
 bootJar {
     archiveBaseName = 'gateway'
+    archiveFileName = 'gateway.jar'
 }
 
 // Agrona/Aeron need access to JDK internals on Java 17+. Apply to ALL JavaExec tasks

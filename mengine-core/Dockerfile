@@ -7,4 +7,5 @@ COPY mengine-core/build/install/mengine-core/ .
 
 EXPOSE 8081
 
-ENTRYPOINT ["bin/MatchingEngineMain"]
+# installDist creates bin/<projectName> (e.g. bin/mengine-core), not bin/MatchingEngineMain
+ENTRYPOINT ["bin/mengine-core"]

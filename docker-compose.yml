@@ -4,6 +4,7 @@
 #
 # Startup order: Gateway first (owns Media Driver in shared volume), then ME Core (connects).
 # Gateway healthcheck ensures the driver is up before ME Core starts.
+# Use a subdirectory (/dev/shm/aeron/driver) so the driver can delete/recreate it; the volume mount at /dev/shm/aeron must not be deleted.
 
 version: "3.8"
 
@@ -18,7 +19,7 @@ services:
       GW_HTTP_PORT: "8080"
       GW_AERON_CHANNEL: "aeron:ipc"
       GW_AERON_STREAM_ID: "10"
-      GW_AERON_DIR: "/dev/shm/aeron"
+      GW_AERON_DIR: "/dev/shm/aeron/driver"
       GW_ME_CORE_URL: "http://me-core:8081"
       GW_DB_URL: "jdbc:postgresql://db:5432/mengine"
       GW_DB_USER: mengine
@@ -44,7 +45,7 @@ services:
       ME_QUERY_PORT: "8081"
       ME_AERON_CHANNEL: "aeron:ipc"
       ME_AERON_STREAM_ID: "10"
-      ME_AERON_DIR: "/dev/shm/aeron"
+      ME_AERON_DIR: "/dev/shm/aeron/driver"
       ME_JOURNAL_DIR: "/data/journal"
       ME_DB_URL: "jdbc:postgresql://db:5432/mengine"
       ME_DB_USER: mengine
@@ -52,11 +53,6 @@ services:
     volumes:
       - aeron-shared:/dev/shm/aeron
       - journal-data:/data/journal
-    depends_on:
-      gateway:
-        condition: service_healthy
-      db:
-        condition: service_started
 
   db:
     image: postgres:15-alpine
