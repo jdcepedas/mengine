@@ -114,15 +114,21 @@ public class OrderBook {
 
     /**
      * Returns price levels that can match an incoming order, in priority order (best price first).
-     * BUY: asks with price <= order price (lowest ask first). SELL: bids with price >= order price (highest bid first).
+     * Trade when there is overlap: for BUY, asks with price <= order price; for SELL, bids with price >= order price.
+     * Trade price is always the passive (resting) order's price.
      * Returns a snapshot list so that when the matcher removes/updates levels during matching, the next level is still processed.
      */
     public List<PriceLevel> getMatchingLevels(OrderType type, BigDecimal price) {
         if (type == OrderType.BUY) {
             return new ArrayList<>(asks.headMap(price, true).values());
         } else {
-            // Return all bid levels (best first); matcher fills at resting order's price so SELL matches best bids first.
-            return new ArrayList<>(bids.values());
+            List<PriceLevel> out = new ArrayList<>();
+            for (PriceLevel level : bids.values()) {
+                if (level.getPrice().compareTo(price) >= 0) {
+                    out.add(level);
+                }
+            }
+            return out;
         }
     }
 

@@ -14,8 +14,7 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Tests for the matching engine, especially SELL matching across multiple bid levels
- * and correct removal of empty levels.
+ * Tests for the matching engine: overlap rule (trade when Bid >= Ask) and passive-order price.
  */
 class MatchingEngineTest {
 
@@ -27,7 +26,7 @@ class MatchingEngineTest {
     }
 
     @Test
-    void sellFullyFillsAcrossMultipleBidLevels_bestBidFirst() {
+    void sellMatchesOnlyOverlappingBids_passivePrice() {
         String symbol = "AAPL";
         Order buyA = Order.create("A", symbol, OrderType.BUY, new BigDecimal("150"), new BigDecimal("100"));
         Order buyB = Order.create("B", symbol, OrderType.BUY, new BigDecimal("152"), new BigDecimal("50"));
@@ -37,35 +36,28 @@ class MatchingEngineTest {
         engine.match(buyB);
         MatchResult result = engine.match(sellC);
 
-        assertTrue(result.isMatched(), "SELL 120 @ 151 should be fully matched");
-        assertEquals(0, result.getOrder().getRemainingQuantity().compareTo(BigDecimal.ZERO));
+        assertFalse(result.isMatched(), "SELL 151 overlaps only with bid 152; 70 remains");
+        assertTrue(result.isPartial());
+        assertEquals(0, result.getOrder().getRemainingQuantity().compareTo(new BigDecimal("70")));
 
         List<Trade> trades = result.getTrades();
-        assertEquals(2, trades.size(), "Should match 50 @ 152 then 70 @ 150");
-
-        Trade first = trades.get(0);
-        assertEquals(new BigDecimal("152"), first.getPrice());
-        assertEquals(new BigDecimal("50"), first.getQuantity());
-        assertEquals("B", first.getBuyOrderId());
-        assertEquals("C", first.getSellOrderId());
-
-        Trade second = trades.get(1);
-        assertEquals(new BigDecimal("150"), second.getPrice());
-        assertEquals(new BigDecimal("70"), second.getQuantity());
-        assertEquals("A", second.getBuyOrderId());
-        assertEquals("C", second.getSellOrderId());
+        assertEquals(1, trades.size(), "Only bid 152 >= 151; one trade at passive (B) price");
+        Trade trade = trades.get(0);
+        assertEquals(new BigDecimal("152"), trade.getPrice());
+        assertEquals(new BigDecimal("50"), trade.getQuantity());
+        assertEquals("B", trade.getBuyOrderId());
+        assertEquals("C", trade.getSellOrderId());
 
         OrderBook book = engine.getOrderBook(symbol);
         assertNotNull(book);
-
         List<PriceLevel> bids = book.getBids();
-        assertEquals(1, bids.size(), "Only 150 level should remain (152 level removed when B fully filled)");
+        assertEquals(1, bids.size(), "152 level removed (B filled); 150 level unchanged");
         assertEquals(0, bids.get(0).getPrice().compareTo(new BigDecimal("150")));
-        assertEquals(0, bids.get(0).getTotalQuantity().compareTo(new BigDecimal("30")));
-        assertEquals(1, bids.get(0).size());
-
+        assertEquals(0, bids.get(0).getTotalQuantity().compareTo(new BigDecimal("100")));
         List<PriceLevel> asks = book.getAsks();
-        assertTrue(asks.isEmpty(), "SELL C fully filled so no resting ask at 151");
+        assertEquals(1, asks.size());
+        assertEquals(0, asks.get(0).getPrice().compareTo(new BigDecimal("151")));
+        assertEquals(0, asks.get(0).getTotalQuantity().compareTo(new BigDecimal("70")));
     }
 
     @Test
@@ -110,5 +102,65 @@ class MatchingEngineTest {
         OrderBook book = engine.getOrderBook(symbol);
         assertTrue(book.getAsks().isEmpty());
         assertEquals(0, book.getBids().size());
+    }
+
+    @Test
+    void buyExactMatch_tradeAtAskPrice() {
+        String symbol = "SYM";
+        Order sell = Order.create("S1", symbol, OrderType.SELL, new BigDecimal("105"), new BigDecimal("10"));
+        Order buy = Order.create("B1", symbol, OrderType.BUY, new BigDecimal("105"), new BigDecimal("10"));
+        engine.match(sell);
+        MatchResult result = engine.match(buy);
+        assertTrue(result.isMatched());
+        assertEquals(1, result.getTrades().size());
+        assertEquals(new BigDecimal("105"), result.getTrades().get(0).getPrice());
+        assertEquals(new BigDecimal("10"), result.getTrades().get(0).getQuantity());
+        assertTrue(engine.getOrderBook(symbol).getAsks().isEmpty());
+        assertEquals(0, engine.getOrderBook(symbol).getBids().size());
+    }
+
+    @Test
+    void buyCrossesSpread_tradeAtAskPrice() {
+        String symbol = "SYM";
+        Order sell = Order.create("S1", symbol, OrderType.SELL, new BigDecimal("105"), new BigDecimal("10"));
+        Order buy = Order.create("B1", symbol, OrderType.BUY, new BigDecimal("110"), new BigDecimal("10"));
+        engine.match(sell);
+        MatchResult result = engine.match(buy);
+        assertTrue(result.isMatched());
+        assertEquals(1, result.getTrades().size());
+        assertEquals(new BigDecimal("105"), result.getTrades().get(0).getPrice(), "Trade at passive (seller) price");
+        assertEquals(new BigDecimal("10"), result.getTrades().get(0).getQuantity());
+        assertTrue(engine.getOrderBook(symbol).getAsks().isEmpty());
+        assertEquals(0, engine.getOrderBook(symbol).getBids().size());
+    }
+
+    @Test
+    void sellExactMatch_tradeAtBidPrice() {
+        String symbol = "SYM";
+        Order buy = Order.create("B1", symbol, OrderType.BUY, new BigDecimal("105"), new BigDecimal("10"));
+        Order sell = Order.create("S1", symbol, OrderType.SELL, new BigDecimal("105"), new BigDecimal("10"));
+        engine.match(buy);
+        MatchResult result = engine.match(sell);
+        assertTrue(result.isMatched());
+        assertEquals(1, result.getTrades().size());
+        assertEquals(new BigDecimal("105"), result.getTrades().get(0).getPrice());
+        assertEquals(new BigDecimal("10"), result.getTrades().get(0).getQuantity());
+        assertEquals(0, engine.getOrderBook(symbol).getBids().size());
+        assertTrue(engine.getOrderBook(symbol).getAsks().isEmpty());
+    }
+
+    @Test
+    void sellCrossesSpread_tradeAtBidPrice() {
+        String symbol = "SYM";
+        Order buy = Order.create("B1", symbol, OrderType.BUY, new BigDecimal("110"), new BigDecimal("10"));
+        Order sell = Order.create("S1", symbol, OrderType.SELL, new BigDecimal("105"), new BigDecimal("10"));
+        engine.match(buy);
+        MatchResult result = engine.match(sell);
+        assertTrue(result.isMatched());
+        assertEquals(1, result.getTrades().size());
+        assertEquals(new BigDecimal("110"), result.getTrades().get(0).getPrice(), "Trade at passive (buyer) price");
+        assertEquals(new BigDecimal("10"), result.getTrades().get(0).getQuantity());
+        assertEquals(0, engine.getOrderBook(symbol).getBids().size());
+        assertTrue(engine.getOrderBook(symbol).getAsks().isEmpty());
     }
 }
