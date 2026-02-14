@@ -22,7 +22,7 @@ public class EngineConfig {
     private static final String DEFAULT_DB_URL = "";
     private static final String DEFAULT_DB_USER = "mengine";
     private static final String DEFAULT_DB_PASSWORD = "mengine";
-    private static final boolean DEFAULT_LATENCY_LOG_ENABLED = false;
+    private static final boolean DEFAULT_LATENCY_LOG_ENABLED = true;
     private static final String DEFAULT_LATENCY_LOG_PATH = "";
 
     private final int bufferSize;

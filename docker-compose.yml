@@ -50,12 +50,22 @@ services:
       ME_DB_URL: "jdbc:postgresql://db:5432/mengine"
       ME_DB_USER: mengine
       ME_DB_PASSWORD: mengine
+      ME_LATENCY_LOG_ENABLED: true
     volumes:
       - aeron-shared:/dev/shm/aeron
       - journal-data:/data/journal
+    depends_on:
+      db:
+        condition: service_healthy
 
   db:
     image: postgres:15-alpine
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     environment:
       POSTGRES_DB: mengine
       POSTGRES_USER: mengine

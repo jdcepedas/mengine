@@ -21,14 +21,15 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class MatchingLatencyRecorder {
 
     private static final int QUEUE_CAPACITY = 65536;
-    private static final int FLUSH_EVERY_RECORDS = 100;
     private static final long POLL_TIMEOUT_MS = 500;
 
     private final boolean enabled;
     private final Path logPath;
     private final BlockingQueue<LatencyRecord> queue;
     private final AtomicBoolean running;
-    private Thread writerThread;
+    private volatile Thread writerThread;
+    private static final AtomicBoolean firstEnqueueLogged = new AtomicBoolean(false);
+    private static final AtomicBoolean firstWriteLogged = new AtomicBoolean(false);
 
     public MatchingLatencyRecorder(boolean enabled, String logPath) {
         this.enabled = enabled;
@@ -52,15 +53,24 @@ public class MatchingLatencyRecorder {
                 result.getMatchingTimeNs(),
                 System.currentTimeMillis()
         );
-        queue.offer(rec);
+        boolean offered = queue.offer(rec);
+        if (!offered) {
+            System.err.println("[ME Core] Latency queue full, record dropped for orderId=" + order.getId());
+        }
     }
 
     /**
      * Start the background writer thread. No-op if disabled.
      */
     public void start() {
-        if (!enabled || logPath == null) return;
+        if (!enabled || logPath == null) {
+            if (enabled && logPath == null) {
+                System.err.println("[ME Core] Latency log enabled but path is null; latency log disabled.");
+            }
+            return;
+        }
         if (running.compareAndSet(false, true)) {
+            System.out.println("[ME Core] Latency log enabled, path=" + logPath.toAbsolutePath());
             writerThread = new Thread(this::runWriter, "matching-latency-writer");
             writerThread.setDaemon(true);
             writerThread.start();
@@ -92,7 +102,6 @@ public class MatchingLatencyRecorder {
                 out.write("orderId,symbol,type,matched,partial,tradeCount,latencyNs,timestampMs");
                 out.newLine();
                 out.flush();
-                int count = 0;
                 while (running.get() || !queue.isEmpty()) {
                     LatencyRecord rec;
                     try {
@@ -103,11 +112,7 @@ public class MatchingLatencyRecorder {
                     }
                     if (rec == null) continue;
                     writeLine(out, rec);
-                    count++;
-                    if (count >= FLUSH_EVERY_RECORDS) {
-                        out.flush();
-                        count = 0;
-                    }
+                    out.flush();
                 }
                 out.flush();
             }
