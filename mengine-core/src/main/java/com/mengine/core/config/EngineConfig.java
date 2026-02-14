@@ -22,6 +22,8 @@ public class EngineConfig {
     private static final String DEFAULT_DB_URL = "";
     private static final String DEFAULT_DB_USER = "mengine";
     private static final String DEFAULT_DB_PASSWORD = "mengine";
+    private static final boolean DEFAULT_LATENCY_LOG_ENABLED = false;
+    private static final String DEFAULT_LATENCY_LOG_PATH = "";
 
     private final int bufferSize;
     private final int matchingTimeoutMs;
@@ -34,10 +36,13 @@ public class EngineConfig {
     private final String dbUrl;
     private final String dbUser;
     private final String dbPassword;
+    private final boolean latencyLogEnabled;
+    private final String latencyLogPath;
 
     public EngineConfig(int bufferSize, int matchingTimeoutMs, int standardDelayMs,
                         int queryPort, String aeronChannel, int aeronStreamId, String aeronDir,
-                        String journalDir, String dbUrl, String dbUser, String dbPassword) {
+                        String journalDir, String dbUrl, String dbUser, String dbPassword,
+                        boolean latencyLogEnabled, String latencyLogPath) {
         this.bufferSize = bufferSize;
         this.matchingTimeoutMs = matchingTimeoutMs;
         this.standardDelayMs = standardDelayMs;
@@ -49,10 +54,16 @@ public class EngineConfig {
         this.dbUrl = dbUrl;
         this.dbUser = dbUser;
         this.dbPassword = dbPassword;
+        this.latencyLogEnabled = latencyLogEnabled;
+        this.latencyLogPath = latencyLogPath != null && !latencyLogPath.isEmpty()
+                ? latencyLogPath
+                : journalDir + "/matching_latency.log";
     }
 
     public static EngineConfig load() {
         Properties props = loadConfigFile();
+        String journalDir = getString(props, "ME_JOURNAL_DIR", DEFAULT_JOURNAL_DIR);
+        String latencyPath = getString(props, "ME_LATENCY_LOG_PATH", DEFAULT_LATENCY_LOG_PATH);
         return new EngineConfig(
                 getInt(props, "ME_BUFFER_SIZE", DEFAULT_BUFFER_SIZE),
                 getInt(props, "ME_MATCHING_TIMEOUT_MS", DEFAULT_MATCHING_TIMEOUT_MS),
@@ -61,10 +72,12 @@ public class EngineConfig {
                 getString(props, "ME_AERON_CHANNEL", DEFAULT_AERON_CHANNEL),
                 getInt(props, "ME_AERON_STREAM_ID", DEFAULT_AERON_STREAM_ID),
                 getString(props, "ME_AERON_DIR", DEFAULT_AERON_DIR),
-                getString(props, "ME_JOURNAL_DIR", DEFAULT_JOURNAL_DIR),
+                journalDir,
                 getString(props, "ME_DB_URL", DEFAULT_DB_URL),
                 getString(props, "ME_DB_USER", DEFAULT_DB_USER),
-                getString(props, "ME_DB_PASSWORD", DEFAULT_DB_PASSWORD)
+                getString(props, "ME_DB_PASSWORD", DEFAULT_DB_PASSWORD),
+                getBoolean(props, "ME_LATENCY_LOG_ENABLED", DEFAULT_LATENCY_LOG_ENABLED),
+                latencyPath
         );
     }
 
@@ -115,6 +128,19 @@ public class EngineConfig {
         return propValue != null && !propValue.isEmpty() ? propValue : defaultValue;
     }
 
+    private static boolean getBoolean(Properties props, String envKey, boolean defaultValue) {
+        String envValue = System.getenv(envKey);
+        if (envValue != null && !envValue.isEmpty()) {
+            return "true".equalsIgnoreCase(envValue) || "1".equals(envValue);
+        }
+        String propKey = envKey.toLowerCase().replace("_", ".");
+        String propValue = props.getProperty(propKey);
+        if (propValue != null && !propValue.isEmpty()) {
+            return "true".equalsIgnoreCase(propValue) || "1".equals(propValue);
+        }
+        return defaultValue;
+    }
+
     public int getBufferSize() { return bufferSize; }
     public int getMatchingTimeoutMs() { return matchingTimeoutMs; }
     public int getStandardDelayMs() { return standardDelayMs; }
@@ -126,4 +152,6 @@ public class EngineConfig {
     public String getDbUrl() { return dbUrl; }
     public String getDbUser() { return dbUser; }
     public String getDbPassword() { return dbPassword; }
+    public boolean isLatencyLogEnabled() { return latencyLogEnabled; }
+    public String getLatencyLogPath() { return latencyLogPath; }
 }

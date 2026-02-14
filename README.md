@@ -96,6 +96,8 @@ docker-compose up
 - `ME_JOURNAL_DIR` – order journal directory (default `journal`)
 - `ME_DB_URL`, `ME_DB_USER`, `ME_DB_PASSWORD` – trades DB (empty = in-memory)
 - `ME_BUFFER_SIZE`, `ME_MATCHING_TIMEOUT_MS`, `ME_STANDARD_DELAY_MS`
+- `ME_LATENCY_LOG_ENABLED` – enable matching latency log (default `false`)
+- `ME_LATENCY_LOG_PATH` – path for latency CSV file (default `{ME_JOURNAL_DIR}/matching_latency.log`)
 
 **Gateway** – env / `gateway.properties`:
 
@@ -104,6 +106,49 @@ docker-compose up
 - `GW_AERON_DIR` – connect to existing driver (no launch)
 - `GW_ME_CORE_URL` (default http://localhost:8081)
 - `GW_DB_URL`, `GW_DB_USER`, `GW_DB_PASSWORD` – for GET /trades
+
+## Matching latency measurement
+
+ME Core can log per-order matching latency to a CSV file for analysis. The feature is **off by default** so the hot path is unaffected until you enable it.
+
+### Enabling the latency log
+
+1. **Set the enable flag** (environment or config file):
+   - **Environment:** `export ME_LATENCY_LOG_ENABLED=true`
+   - **Properties file** (`mengine.properties` or `config/mengine.properties`): `me.latency.log.enabled=true`
+
+2. **Optional – log file path** (default is `{ME_JOURNAL_DIR}/matching_latency.log`, e.g. `journal/matching_latency.log`):
+   - **Environment:** `export ME_LATENCY_LOG_PATH=/var/log/me/matching_latency.log`
+   - **Properties:** `me.latency.log.path=/var/log/me/matching_latency.log`
+
+3. **Restart ME Core** so it picks up the config. The latency writer thread starts with the input disruptor and creates the file (and parent directories) on first write.
+
+### How it works
+
+- **Hot path:** After each `match(order)` call, the disruptor handler builds a small record (order id, symbol, type, matched/partial, trade count, latency in nanoseconds, timestamp) and **offers** it to a bounded queue. No I/O and no blocking on the matching thread; if the queue is full, the record is dropped.
+- **Background writer:** A single daemon thread drains the queue and appends one CSV line per order to the log file. Writes are buffered and flushed every 100 records (and on shutdown) to limit syscalls.
+- **Shutdown:** When ME Core exits, the recorder is stopped: the writer drains remaining records, flushes, and closes the file.
+
+### Log format
+
+The file is CSV with a header line, then one row per order:
+
+```text
+orderId,symbol,type,matched,partial,tradeCount,latencyNs,timestampMs
+O1,AAPL,BUY,true,false,1,1240625,1739123456789
+O2,AAPL,SELL,false,true,1,24250,1739123456795
+```
+
+- **orderId** – order identifier  
+- **symbol** – instrument  
+- **type** – `BUY` or `SELL`  
+- **matched** – order fully filled  
+- **partial** – order partially filled  
+- **tradeCount** – number of trades produced by this order  
+- **latencyNs** – matching duration in nanoseconds (from entry to exit of `match()`)  
+- **timestampMs** – time when the record was taken (milliseconds since epoch)
+
+You can open the file in a spreadsheet or use scripts to compute percentiles (e.g. p50, p99) and correlate with order flow.
 
 ## Architecture
 

@@ -9,6 +9,7 @@ import com.mengine.core.buffer.OrderEvent;
 import com.mengine.core.buffer.TradeEvent;
 import com.mengine.core.config.EngineConfig;
 import com.mengine.core.journal.Journaler;
+import com.mengine.core.latency.MatchingLatencyRecorder;
 import com.mengine.core.matching.MatchResult;
 import com.mengine.core.matching.MatchingEngine;
 import com.mengine.core.model.OrderRegistry;
@@ -51,9 +52,12 @@ public class MatchingEngineMain {
             aeronDir = driverCtx.aeronDirectoryName();
             System.out.println("Aeron Media Driver directory: " + aeronDir);
         }
+        final MatchingLatencyRecorder[] latencyRecorderRef = new MatchingLatencyRecorder[1];
         try {
             OrderRegistry orderRegistry = new OrderRegistry();
             MatchingEngine matchingEngine = new MatchingEngine(config.getMatchingTimeoutMs());
+            latencyRecorderRef[0] = new MatchingLatencyRecorder(
+                    config.isLatencyLogEnabled(), config.getLatencyLogPath());
 
             // Optional journal replay
 
@@ -106,6 +110,7 @@ public class MatchingEngineMain {
                         if (order != null) {
                             orderRegistry.put(order);
                             MatchResult result = matchingEngine.match(order);
+                            if (latencyRecorderRef[0] != null) latencyRecorderRef[0].record(order, result);
                             orderRegistry.put(result.getOrder());
                             for (Trade trade : result.getTrades()) {
                                 offerTradeToOutput(outputRing, trade);
@@ -117,6 +122,7 @@ public class MatchingEngineMain {
             );
             RingBuffer<OrderEvent> inputRing = inputDisruptor.getRingBuffer();
             inputDisruptor.start();
+            if (latencyRecorderRef[0] != null) latencyRecorderRef[0].start();
 
             // Aeron subscriber thread: publishes to Input Disruptor
             AeronOrderSubscriber subscriber = new AeronOrderSubscriber(
@@ -149,6 +155,9 @@ public class MatchingEngineMain {
 
             Thread.currentThread().join();
         } finally {
+            if (latencyRecorderRef[0] != null) {
+                latencyRecorderRef[0].stop();
+            }
             if (driver != null) {
                 driver.close();
             }
