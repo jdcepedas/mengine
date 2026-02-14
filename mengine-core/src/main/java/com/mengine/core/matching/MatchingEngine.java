@@ -74,10 +74,8 @@ public class MatchingEngine {
                 BigDecimal newRestingRemaining = restingOrder.getRemainingQuantity().subtract(fillQty);
                 Order updatedResting = restingOrder.withRemainingQuantity(newRestingRemaining);
                 if (newRestingRemaining.compareTo(BigDecimal.ZERO) == 0) {
-                    level.poll();
                     book.remove(restingOrder);
                 } else {
-                    level.poll();
                     book.remove(restingOrder);
                     book.addToLevel(updatedResting, level);
                 }

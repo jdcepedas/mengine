@@ -46,6 +46,12 @@ public class OrderBook {
     public void addToLevel(Order order, PriceLevel level) {
         orderIndex.put(order.getId(), order);
         level.addFirst(order);
+        // Re-attach level to book when it was removed (e.g. partial fill: remove then add reduced order back)
+        if (order.getType() == OrderType.BUY) {
+            bids.put(level.getPrice(), level);
+        } else {
+            asks.put(level.getPrice(), level);
+        }
     }
 
     public boolean remove(Order order) {
@@ -106,11 +112,17 @@ public class OrderBook {
         return new ArrayList<>(asks.values());
     }
 
-    public Iterable<PriceLevel> getMatchingLevels(OrderType type, BigDecimal price) {
+    /**
+     * Returns price levels that can match an incoming order, in priority order (best price first).
+     * BUY: asks with price <= order price (lowest ask first). SELL: bids with price >= order price (highest bid first).
+     * Returns a snapshot list so that when the matcher removes/updates levels during matching, the next level is still processed.
+     */
+    public List<PriceLevel> getMatchingLevels(OrderType type, BigDecimal price) {
         if (type == OrderType.BUY) {
-            return () -> asks.headMap(price, true).values().iterator();
+            return new ArrayList<>(asks.headMap(price, true).values());
         } else {
-            return () -> bids.tailMap(price, true).values().iterator();
+            // Return all bid levels (best first); matcher fills at resting order's price so SELL matches best bids first.
+            return new ArrayList<>(bids.values());
         }
     }
 
