@@ -57,6 +57,7 @@ In ME Core’s console you must see:
 
 ```bash
 ./gradlew :mengine-core:installDist :gateway:installDist
+./gradlew :mengine-shared:jar :gateway:bootJar :mengine-core:installDist
 docker-compose build
 docker-compose up
 ```

@@ -40,9 +40,16 @@ public class MatchingLatencyRecorder {
 
     /**
      * Record latency for one order. No-op if disabled or queue full (never blocks).
+     * e2eLatencyMs = time from API receive to match (when order has apiReceivedAtEpochMs set).
      */
     public void record(Order order, MatchResult result) {
         if (!enabled || queue == null) return;
+        long timestampMs = System.currentTimeMillis();
+        long e2eLatencyMs = -1L;
+        if (order.getApiReceivedAtEpochMs() > 0) {
+            e2eLatencyMs = timestampMs - order.getApiReceivedAtEpochMs();
+            if (e2eLatencyMs < 0) e2eLatencyMs = -1L;
+        }
         LatencyRecord rec = new LatencyRecord(
                 order.getId(),
                 order.getSymbol(),
@@ -51,7 +58,8 @@ public class MatchingLatencyRecorder {
                 result.isPartial(),
                 result.getTrades().size(),
                 result.getMatchingTimeNs(),
-                System.currentTimeMillis()
+                timestampMs,
+                e2eLatencyMs
         );
         boolean offered = queue.offer(rec);
         if (!offered) {
@@ -99,7 +107,7 @@ public class MatchingLatencyRecorder {
                 Files.createDirectories(parent);
             }
             try (BufferedWriter out = Files.newBufferedWriter(logPath, StandardCharsets.UTF_8)) {
-                out.write("orderId,symbol,type,matched,partial,tradeCount,latencyNs,timestampMs");
+                out.write("orderId,symbol,type,matched,partial,tradeCount,latencyNs,timestampMs,e2eLatencyMs");
                 out.newLine();
                 out.flush();
                 while (running.get() || !queue.isEmpty()) {
@@ -137,6 +145,8 @@ public class MatchingLatencyRecorder {
         out.write(String.valueOf(rec.latencyNs));
         out.write(',');
         out.write(String.valueOf(rec.timestampMs));
+        out.write(',');
+        out.write(rec.e2eLatencyMs >= 0 ? String.valueOf(rec.e2eLatencyMs) : "");
         out.newLine();
     }
 
@@ -157,9 +167,11 @@ public class MatchingLatencyRecorder {
         final int tradeCount;
         final long latencyNs;
         final long timestampMs;
+        /** End-to-end latency ms (API receive to match); -1 if not available. */
+        final long e2eLatencyMs;
 
         LatencyRecord(String orderId, String symbol, OrderType type, boolean matched, boolean partial,
-                      int tradeCount, long latencyNs, long timestampMs) {
+                      int tradeCount, long latencyNs, long timestampMs, long e2eLatencyMs) {
             this.orderId = orderId;
             this.symbol = symbol;
             this.type = type;
@@ -168,6 +180,7 @@ public class MatchingLatencyRecorder {
             this.tradeCount = tradeCount;
             this.latencyNs = latencyNs;
             this.timestampMs = timestampMs;
+            this.e2eLatencyMs = e2eLatencyMs;
         }
     }
 }
