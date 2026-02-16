@@ -49,7 +49,8 @@ public class GatewayRestController {
                         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(OrderResponse.rejected("Invalid order"));
                     }
                     String orderId = "O" + UUID.randomUUID().toString().replace("-", "").substring(0, 12);
-                    Order order = Order.create(orderId, req.symbol(), req.type(), req.price(), req.quantity());
+                    long apiReceivedAtEpochMs = System.currentTimeMillis();
+                    Order order = Order.createWithApiReceivedAt(orderId, req.symbol(), req.type(), req.price(), req.quantity(), apiReceivedAtEpochMs);
                     if (!orderPublisher.publish(order)) {
                         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(OrderResponse.bufferFull(orderId));
                     }

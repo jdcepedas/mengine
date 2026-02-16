@@ -134,9 +134,9 @@ ME Core can log per-order matching latency to a CSV file for analysis. The featu
 The file is CSV with a header line, then one row per order:
 
 ```text
-orderId,symbol,type,matched,partial,tradeCount,latencyNs,timestampMs
-O1,AAPL,BUY,true,false,1,1240625,1739123456789
-O2,AAPL,SELL,false,true,1,24250,1739123456795
+orderId,symbol,type,matched,partial,tradeCount,latencyNs,timestampMs,e2eLatencyMs
+O1,AAPL,BUY,true,false,1,1240625,1739123456789,2
+O2,AAPL,SELL,false,true,1,24250,1739123456795,1
 ```
 
 - **orderId** – order identifier  
@@ -146,7 +146,8 @@ O2,AAPL,SELL,false,true,1,24250,1739123456795
 - **partial** – order partially filled  
 - **tradeCount** – number of trades produced by this order  
 - **latencyNs** – matching duration in nanoseconds (from entry to exit of `match()`)  
-- **timestampMs** – time when the record was taken (milliseconds since epoch)
+- **timestampMs** – time when the record was taken (milliseconds since epoch)  
+- **e2eLatencyMs** – end-to-end latency in ms (API receive at Gateway → match complete in ME Core). Empty when the order was not received via the API (e.g. journal replay).
 
 You can open the file in a spreadsheet or use scripts to compute percentiles (e.g. p50, p99) and correlate with order flow.
 
