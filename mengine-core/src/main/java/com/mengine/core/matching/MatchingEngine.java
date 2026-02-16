@@ -19,12 +19,18 @@ import java.util.concurrent.atomic.AtomicLong;
 public class MatchingEngine {
 
     private final long matchingTimeoutNs;
+    private final boolean traceLogging;
     private final Map<String, OrderBook> orderBooks = new ConcurrentHashMap<>();
     private final AtomicLong tradeIdGenerator = new AtomicLong(0);
     private final AtomicLong orderIdGenerator = new AtomicLong(0);
 
     public MatchingEngine(long matchingTimeoutMs) {
+        this(matchingTimeoutMs, false);
+    }
+
+    public MatchingEngine(long matchingTimeoutMs, boolean traceLogging) {
         this.matchingTimeoutNs = matchingTimeoutMs * 1_000_000;
+        this.traceLogging = traceLogging;
     }
 
     public OrderBook getOrCreateOrderBook(String symbol) {
@@ -36,7 +42,9 @@ public class MatchingEngine {
     }
 
     public MatchResult match(Order order) {
-        System.out.println("[ME Core] Income Matching order: " + order.getSymbol() + " " + order.getType() + " " + order.getPrice() + " " + order.getQuantity());
+        if (traceLogging) {
+            System.out.println("[ME Core] Income Matching order: " + order.getSymbol() + " " + order.getType() + " " + order.getPrice() + " " + order.getQuantity());
+        }
         long startNs = System.nanoTime();
         long deadlineNs = startNs + matchingTimeoutNs;
 
@@ -85,9 +93,11 @@ public class MatchingEngine {
 
                 if (newCurrentRemaining.compareTo(BigDecimal.ZERO) == 0) {
                     long elapsedNs = System.nanoTime() - startNs;
-                    System.out.println("The order was fully matched");
-                    System.out.println("[ME Core] MatchResult: " + trades.size() + " trades were  matched " + " elapsedNs=" + elapsedNs);
-                    trades.forEach(t -> System.out.println("[ME Core] Trade: " + t.getId() + " " + t.getSymbol() + " " + t.getPrice() + " " + t.getQuantity()));
+                    if (traceLogging) {
+                        System.out.println("The order was fully matched");
+                        System.out.println("[ME Core] MatchResult: " + trades.size() + " trades were  matched " + " elapsedNs=" + elapsedNs);
+                        trades.forEach(t -> System.out.println("[ME Core] Trade: " + t.getId() + " " + t.getSymbol() + " " + t.getPrice() + " " + t.getQuantity()));
+                    }
                     return new MatchResult(currentOrder, trades, true, false, elapsedNs);
                 }
             }
@@ -96,9 +106,11 @@ public class MatchingEngine {
         if (currentOrder.getRemainingQuantity().compareTo(order.getQuantity()) < 0) {
             book.add(currentOrder);
             long elapsedNs = System.nanoTime() - startNs;
-            System.out.println("The order was partially matched");
-            System.out.println("[ME Core] MatchResult: " + trades.size() + " trades were  matched " + " elapsedNs=" + elapsedNs);
-            trades.forEach(t -> System.out.println("[ME Core] Trade: " + t.getId() + " " + t.getSymbol() + " " + t.getPrice() + " " + t.getQuantity()));
+            if (traceLogging) {
+                System.out.println("The order was partially matched");
+                System.out.println("[ME Core] MatchResult: " + trades.size() + " trades were  matched " + " elapsedNs=" + elapsedNs);
+                trades.forEach(t -> System.out.println("[ME Core] Trade: " + t.getId() + " " + t.getSymbol() + " " + t.getPrice() + " " + t.getQuantity()));
+            }
             return new MatchResult(currentOrder, trades, false, true, elapsedNs);
         }
 
@@ -107,9 +119,10 @@ public class MatchingEngine {
         }
 
         long elapsedNs = System.nanoTime() - startNs;
-        // NOTE - use return directly instead of creating object
-        System.out.println("[ME Core] MatchResult: " + trades.size() + " trades were  matched " + " elapsedNs=" + elapsedNs);
-        trades.forEach(t -> System.out.println("[ME Core] Trade: " + t.getId() + " " + t.getSymbol() + " " + t.getPrice() + " " + t.getQuantity()));
+        if (traceLogging) {
+            System.out.println("[ME Core] MatchResult: " + trades.size() + " trades were  matched " + " elapsedNs=" + elapsedNs);
+            trades.forEach(t -> System.out.println("[ME Core] Trade: " + t.getId() + " " + t.getSymbol() + " " + t.getPrice() + " " + t.getQuantity()));
+        }
         return new MatchResult(currentOrder, trades, false, !trades.isEmpty(), elapsedNs);
     }
 

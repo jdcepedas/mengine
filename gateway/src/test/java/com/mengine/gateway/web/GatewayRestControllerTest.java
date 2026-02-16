@@ -1,6 +1,7 @@
 package com.mengine.gateway.web;
 
 import com.mengine.api.OrderBookResponse;
+import com.mengine.gateway.aeron.OrderPublisherRouter;
 import com.mengine.gateway.client.MeCoreClient;
 import com.mengine.gateway.client.TradeQuery;
 import com.mengine.model.Order;
@@ -16,6 +17,7 @@ import org.springframework.test.web.reactive.server.WebTestClient;
 import java.math.BigDecimal;
 import java.util.List;
 
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 
@@ -27,6 +29,9 @@ class GatewayRestControllerTest {
     WebTestClient webTestClient;
 
     @MockBean
+    OrderPublisherRouter orderPublisherRouter;
+
+    @MockBean
     MeCoreClient meCoreClient;
 
     @MockBean
@@ -34,6 +39,7 @@ class GatewayRestControllerTest {
 
     @Test
     void postOrder_valid_returns202() {
+        when(orderPublisherRouter.publish(any())).thenReturn(true);
         String body = """
                 {"symbol":"AAPL","type":"BUY","price":"150.00","quantity":"10"}
                 """;

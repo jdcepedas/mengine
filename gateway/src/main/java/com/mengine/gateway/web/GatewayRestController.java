@@ -3,8 +3,9 @@ package com.mengine.gateway.web;
 import com.mengine.api.OrderBookResponse;
 import com.mengine.api.OrderRequest;
 import com.mengine.api.OrderResponse;
-import com.mengine.gateway.aeron.OrderPublisher;
+import com.mengine.gateway.aeron.OrderPublisherRouter;
 import com.mengine.gateway.client.MeCoreClient;
+import com.mengine.gateway.config.OrderSymbolCache;
 import com.mengine.gateway.client.TradeQuery;
 import com.mengine.model.Order;
 import com.mengine.model.Trade;
@@ -31,14 +32,17 @@ import java.util.UUID;
 @RestController
 public class GatewayRestController {
 
-    private final OrderPublisher orderPublisher;
+    private final OrderPublisherRouter orderPublisherRouter;
     private final MeCoreClient meCoreClient;
     private final TradeQuery tradeQuery;
+    private final OrderSymbolCache orderSymbolCache;
 
-    public GatewayRestController(OrderPublisher orderPublisher, MeCoreClient meCoreClient, TradeQuery tradeQuery) {
-        this.orderPublisher = orderPublisher;
+    public GatewayRestController(OrderPublisherRouter orderPublisherRouter, MeCoreClient meCoreClient,
+                                  TradeQuery tradeQuery, OrderSymbolCache orderSymbolCache) {
+        this.orderPublisherRouter = orderPublisherRouter;
         this.meCoreClient = meCoreClient;
         this.tradeQuery = tradeQuery;
+        this.orderSymbolCache = orderSymbolCache;
     }
 
     @PostMapping(value = "/orders", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
@@ -50,7 +54,8 @@ public class GatewayRestController {
                     }
                     String orderId = "O" + UUID.randomUUID().toString().replace("-", "").substring(0, 12);
                     Order order = Order.create(orderId, req.symbol(), req.type(), req.price(), req.quantity());
-                    if (!orderPublisher.publish(order)) {
+                    orderSymbolCache.put(orderId, req.symbol());
+                    if (!orderPublisherRouter.publish(order)) {
                         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(OrderResponse.bufferFull(orderId));
                     }
                     return ResponseEntity.status(HttpStatus.ACCEPTED).body(OrderResponse.accepted(orderId));
@@ -85,5 +90,20 @@ public class GatewayRestController {
                 .subscribeOn(Schedulers.boundedElastic())
                 .map(ResponseEntity::ok)
                 .onErrorResume(e -> Mono.just(ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(List.of())));
+    }
+
+    /**
+     * Return which partition (ME Core index) a symbol is routed to.
+     * Use this to pick symbols that hit different partitions for testing (e.g. partition 0 vs 1).
+     */
+    @GetMapping(value = "/partition/{symbol}", produces = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<Map<String, Object>> getPartition(@PathVariable String symbol) {
+        int partitionCount = orderPublisherRouter.getPartitionCount();
+        int partition = OrderPublisherRouter.partition(symbol != null ? symbol : "", partitionCount, orderPublisherRouter.getSymbols());
+        return ResponseEntity.ok(Map.of(
+                "symbol", symbol != null ? symbol : "",
+                "partition", partition,
+                "partitionCount", partitionCount
+        ));
     }
 }

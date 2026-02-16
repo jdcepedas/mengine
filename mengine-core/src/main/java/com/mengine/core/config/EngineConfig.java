@@ -17,6 +17,8 @@ public class EngineConfig {
     private static final int DEFAULT_QUERY_PORT = 8081;
     private static final String DEFAULT_AERON_CHANNEL = "aeron:ipc";
     private static final int DEFAULT_AERON_STREAM_ID = 10;
+    private static final int DEFAULT_AERON_STREAM_ID_BASE = 10;
+    private static final int UNSET_PARTITION_INDEX = -1;
     private static final String DEFAULT_AERON_DIR = "";
     private static final String DEFAULT_JOURNAL_DIR = "journal";
     private static final String DEFAULT_DB_URL = "";
@@ -24,6 +26,7 @@ public class EngineConfig {
     private static final String DEFAULT_DB_PASSWORD = "mengine";
     private static final boolean DEFAULT_LATENCY_LOG_ENABLED = true;
     private static final String DEFAULT_LATENCY_LOG_PATH = "";
+    private static final boolean DEFAULT_TRACE_LOGGING = true;
 
     private final int bufferSize;
     private final int matchingTimeoutMs;
@@ -38,11 +41,12 @@ public class EngineConfig {
     private final String dbPassword;
     private final boolean latencyLogEnabled;
     private final String latencyLogPath;
+    private final boolean traceLogging;
 
     public EngineConfig(int bufferSize, int matchingTimeoutMs, int standardDelayMs,
                         int queryPort, String aeronChannel, int aeronStreamId, String aeronDir,
                         String journalDir, String dbUrl, String dbUser, String dbPassword,
-                        boolean latencyLogEnabled, String latencyLogPath) {
+                        boolean latencyLogEnabled, String latencyLogPath, boolean traceLogging) {
         this.bufferSize = bufferSize;
         this.matchingTimeoutMs = matchingTimeoutMs;
         this.standardDelayMs = standardDelayMs;
@@ -58,26 +62,32 @@ public class EngineConfig {
         this.latencyLogPath = latencyLogPath != null && !latencyLogPath.isEmpty()
                 ? latencyLogPath
                 : journalDir + "/matching_latency.log";
+        this.traceLogging = traceLogging;
     }
 
     public static EngineConfig load() {
         Properties props = loadConfigFile();
         String journalDir = getString(props, "ME_JOURNAL_DIR", DEFAULT_JOURNAL_DIR);
         String latencyPath = getString(props, "ME_LATENCY_LOG_PATH", DEFAULT_LATENCY_LOG_PATH);
+        int partitionIndex = getInt(props, "ME_PARTITION_INDEX", UNSET_PARTITION_INDEX);
+        int streamId = partitionIndex >= 0
+                ? DEFAULT_AERON_STREAM_ID_BASE + partitionIndex
+                : getInt(props, "ME_AERON_STREAM_ID", DEFAULT_AERON_STREAM_ID);
         return new EngineConfig(
                 getInt(props, "ME_BUFFER_SIZE", DEFAULT_BUFFER_SIZE),
                 getInt(props, "ME_MATCHING_TIMEOUT_MS", DEFAULT_MATCHING_TIMEOUT_MS),
                 getInt(props, "ME_STANDARD_DELAY_MS", DEFAULT_STANDARD_DELAY_MS),
                 getInt(props, "ME_QUERY_PORT", DEFAULT_QUERY_PORT),
                 getString(props, "ME_AERON_CHANNEL", DEFAULT_AERON_CHANNEL),
-                getInt(props, "ME_AERON_STREAM_ID", DEFAULT_AERON_STREAM_ID),
+                streamId,
                 getString(props, "ME_AERON_DIR", DEFAULT_AERON_DIR),
                 journalDir,
                 getString(props, "ME_DB_URL", DEFAULT_DB_URL),
                 getString(props, "ME_DB_USER", DEFAULT_DB_USER),
                 getString(props, "ME_DB_PASSWORD", DEFAULT_DB_PASSWORD),
                 getBoolean(props, "ME_LATENCY_LOG_ENABLED", DEFAULT_LATENCY_LOG_ENABLED),
-                latencyPath
+                latencyPath,
+                getBoolean(props, "ME_TRACE_LOGGING", DEFAULT_TRACE_LOGGING)
         );
     }
 
@@ -154,4 +164,5 @@ public class EngineConfig {
     public String getDbPassword() { return dbPassword; }
     public boolean isLatencyLogEnabled() { return latencyLogEnabled; }
     public String getLatencyLogPath() { return latencyLogPath; }
+    public boolean isTraceLogging() { return traceLogging; }
 }

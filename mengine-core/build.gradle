@@ -11,6 +11,7 @@ dependencies {
     implementation 'org.glassfish.grizzly:grizzly-http-server:2.4.4'
     implementation 'com.fasterxml.jackson.core:jackson-databind:2.15.2'
     implementation 'org.postgresql:postgresql:42.6.0'
+    implementation 'com.zaxxer:HikariCP:5.1.0'
 
     testImplementation 'org.junit.jupiter:junit-jupiter:5.10.0'
 }

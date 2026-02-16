@@ -17,6 +17,9 @@ import com.mengine.core.notification.NotificationService;
 import com.mengine.core.persistence.JdbcTradeRepository;
 import com.mengine.core.persistence.InMemoryTradeRepository;
 import com.mengine.core.persistence.TradeRepository;
+import com.zaxxer.hikari.HikariConfig;
+import com.zaxxer.hikari.HikariDataSource;
+import com.mengine.core.metrics.MatchingMetrics;
 import com.mengine.core.query.QueryApi;
 import com.mengine.model.Order;
 import com.mengine.model.Trade;
@@ -26,6 +29,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.LockSupport;
 
 /**
@@ -53,9 +57,13 @@ public class MatchingEngineMain {
             System.out.println("Aeron Media Driver directory: " + aeronDir);
         }
         final MatchingLatencyRecorder[] latencyRecorderRef = new MatchingLatencyRecorder[1];
+        MatchingMetrics metrics = new MatchingMetrics();
+        AtomicBoolean subscriptionReady = new AtomicBoolean(false);
+        final AeronOrderSubscriber[] subscriberRef = new AeronOrderSubscriber[1];
         try {
             OrderRegistry orderRegistry = new OrderRegistry();
-            MatchingEngine matchingEngine = new MatchingEngine(config.getMatchingTimeoutMs());
+            MatchingEngine matchingEngine = new MatchingEngine(config.getMatchingTimeoutMs(), config.isTraceLogging());
+            final boolean traceLogging = config.isTraceLogging();
             latencyRecorderRef[0] = new MatchingLatencyRecorder(
                     config.isLatencyLogEnabled(), config.getLatencyLogPath());
 
@@ -110,10 +118,11 @@ public class MatchingEngineMain {
                         if (order != null) {
                             orderRegistry.put(order);
                             MatchResult result = matchingEngine.match(order);
+                            metrics.recordMatches(result.getTrades().size());
                             if (latencyRecorderRef[0] != null) latencyRecorderRef[0].record(order, result);
                             orderRegistry.put(result.getOrder());
                             for (Trade trade : result.getTrades()) {
-                                offerTradeToOutput(outputRing, trade);
+                                offerTradeToOutput(outputRing, trade, traceLogging);
                             }
                         }
                         event.clear();
@@ -125,7 +134,7 @@ public class MatchingEngineMain {
             if (latencyRecorderRef[0] != null) latencyRecorderRef[0].start();
 
             // Aeron subscriber thread: publishes to Input Disruptor
-            AeronOrderSubscriber subscriber = new AeronOrderSubscriber(
+            subscriberRef[0] = new AeronOrderSubscriber(
                     config.getAeronChannel(),
                     config.getAeronStreamId(),
                     aeronDir,
@@ -138,18 +147,22 @@ public class MatchingEngineMain {
                                 inputRing.publish(seq);
                             }
                         } catch (com.lmax.disruptor.InsufficientCapacityException e) {
-                            System.out.println("[ME Core] DROPPED order (input ring full): orderId=" + order.getId()
-                                + " type=" + order.getType() + " symbol=" + order.getSymbol());
+                            metrics.recordDroppedOrder();
+                            if (traceLogging) {
+                                System.out.println("[ME Core] DROPPED order (input ring full): orderId=" + order.getId()
+                                    + " type=" + order.getType() + " symbol=" + order.getSymbol());
+                            }
                         }
-                    }
+                    },
+                    subscriptionReady
             );
-            subscriber.start();
-            Thread aeronThread = new Thread(subscriber::run, "aeron-subscriber");
+            subscriberRef[0].start();
+            Thread aeronThread = new Thread(subscriberRef[0]::run, "aeron-subscriber");
             aeronThread.setDaemon(true);
             aeronThread.start();
 
-            // Query API for Gateway
-            QueryApi queryApi = new QueryApi(matchingEngine, orderRegistry);
+            // Query API for Gateway (includes /metrics and /ready)
+            QueryApi queryApi = new QueryApi(matchingEngine, orderRegistry, metrics, subscriptionReady);
             queryApi.start(config.getQueryPort());
             System.out.println("Matching Engine Core started. Query API on port " + config.getQueryPort());
 
@@ -157,6 +170,10 @@ public class MatchingEngineMain {
         } finally {
             if (latencyRecorderRef[0] != null) {
                 latencyRecorderRef[0].stop();
+            }
+            if (subscriberRef[0] != null) {
+                subscriberRef[0].stop();
+                subscriberRef[0].close();
             }
             if (driver != null) {
                 driver.close();
@@ -169,7 +186,7 @@ public class MatchingEngineMain {
      * short sleeps so the input handler does not block (which would fill the input ring and
      * cause "buffer full" / InsufficientCapacityException when SELLs match many BUYs.
      */
-    private static void offerTradeToOutput(RingBuffer<TradeEvent> outputRing, Trade trade) {
+    private static void offerTradeToOutput(RingBuffer<TradeEvent> outputRing, Trade trade, boolean traceLogging) {
         int maxRetries = 50_000;
         for (int i = 0; i < maxRetries; i++) {
             try {
@@ -181,7 +198,7 @@ public class MatchingEngineMain {
                 }
                 return;
             } catch (InsufficientCapacityException e) {
-                if (i > 0 && i % 5_000 == 0) {
+                if (traceLogging && i > 0 && i % 5_000 == 0) {
                     System.out.println("[ME Core] offerTradeToOutput retry " + i + " (output ring full) trade=" + trade.getId());
                 }
                 LockSupport.parkNanos(100_000);
@@ -193,7 +210,14 @@ public class MatchingEngineMain {
     private static TradeRepository createTradeRepository(EngineConfig config) {
         String url = config.getDbUrl();
         if (url != null && !url.isBlank() && url.startsWith("jdbc:")) {
-            return new JdbcTradeRepository(url, config.getDbUser(), config.getDbPassword());
+            HikariConfig hikariConfig = new HikariConfig();
+            hikariConfig.setJdbcUrl(url);
+            hikariConfig.setUsername(config.getDbUser());
+            hikariConfig.setPassword(config.getDbPassword());
+            hikariConfig.setMaximumPoolSize(16);
+            hikariConfig.setMinimumIdle(2);
+            HikariDataSource dataSource = new HikariDataSource(hikariConfig);
+            return new JdbcTradeRepository(dataSource);
         }
         return new InMemoryTradeRepository();
     }

@@ -21,6 +21,7 @@ public class AeronOrderSubscriber implements AutoCloseable {
     private final String aeronDirectoryName;
     private final OrderCallback callback;
     private final IdleStrategy idleStrategy;
+    private final AtomicBoolean subscriptionReady;
     private Aeron aeron;
     private Subscription subscription;
     private final AtomicBoolean running = new AtomicBoolean(true);
@@ -31,14 +32,19 @@ public class AeronOrderSubscriber implements AutoCloseable {
     }
 
     public AeronOrderSubscriber(String channel, int streamId, OrderCallback callback) {
-        this(channel, streamId, null, callback);
+        this(channel, streamId, null, callback, null);
     }
 
     public AeronOrderSubscriber(String channel, int streamId, String aeronDirectoryName, OrderCallback callback) {
+        this(channel, streamId, aeronDirectoryName, callback, null);
+    }
+
+    public AeronOrderSubscriber(String channel, int streamId, String aeronDirectoryName, OrderCallback callback, AtomicBoolean subscriptionReady) {
         this.channel = channel;
         this.streamId = streamId;
         this.aeronDirectoryName = aeronDirectoryName;
         this.callback = callback;
+        this.subscriptionReady = subscriptionReady != null ? subscriptionReady : new AtomicBoolean(false);
         this.idleStrategy = new SleepingIdleStrategy(100);
     }
 
@@ -74,9 +80,14 @@ public class AeronOrderSubscriber implements AutoCloseable {
         long lastLogTime = 0;
         while (running.get()) {
             int imageCount = subscription.imageCount();
-            if (imageCount >= 1 && !loggedConnected) {
-                System.out.println("[ME Core] Subscription has image(s): imageCount=" + imageCount + " (publication connected - ready for orders)");
-                loggedConnected = true;
+            if (imageCount >= 1) {
+                subscriptionReady.set(true);
+                if (!loggedConnected) {
+                    System.out.println("[ME Core] Subscription has image(s): imageCount=" + imageCount + " (publication connected - ready for orders)");
+                    loggedConnected = true;
+                }
+            } else {
+                subscriptionReady.set(false);
             }
             long now = System.currentTimeMillis();
             if (imageCount == 0 && now - lastLogTime > 5_000) {

@@ -2,24 +2,20 @@ package com.mengine.core.persistence;
 
 import com.mengine.model.Trade;
 
-import java.math.BigDecimal;
+import javax.sql.DataSource;
 import java.sql.*;
 import java.util.ArrayList;
 import java.util.List;
 
 /**
- * JDBC implementation of TradeRepository (PostgreSQL).
+ * JDBC implementation of TradeRepository (PostgreSQL) using a DataSource (e.g. HikariCP).
  */
 public class JdbcTradeRepository implements TradeRepository {
 
-    private final String url;
-    private final String user;
-    private final String password;
+    private final DataSource dataSource;
 
-    public JdbcTradeRepository(String url, String user, String password) {
-        this.url = url;
-        this.user = user;
-        this.password = password;
+    public JdbcTradeRepository(DataSource dataSource) {
+        this.dataSource = dataSource;
         initSchema();
     }
 
@@ -35,10 +31,16 @@ public class JdbcTradeRepository implements TradeRepository {
                 timestamp_ns BIGINT NOT NULL
             )
             """;
-        try (Connection conn = DriverManager.getConnection(url, user, password);
+        try (Connection conn = dataSource.getConnection();
              Statement st = conn.createStatement()) {
             st.execute(sql);
         } catch (SQLException e) {
+            // Two ME Cores starting concurrently can both run CREATE TABLE; one creates table+type,
+            // the other hits duplicate key on pg_type (typname=trades). Treat as success.
+            String state = e.getSQLState();
+            if ("23505".equals(state) || "42P07".equals(state)) {
+                return; // unique_violation (type already exists) or duplicate_table
+            }
             throw new RuntimeException("Failed to init trades table", e);
         }
     }
@@ -52,7 +54,7 @@ public class JdbcTradeRepository implements TradeRepository {
     public void saveBatch(List<Trade> trades) {
         if (trades.isEmpty()) return;
         String sql = "INSERT INTO trades (id, symbol, buy_order_id, sell_order_id, price, quantity, timestamp_ns) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO NOTHING";
-        try (Connection conn = DriverManager.getConnection(url, user, password);
+        try (Connection conn = dataSource.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             for (Trade t : trades) {
                 ps.setString(1, t.getId());
@@ -74,7 +76,7 @@ public class JdbcTradeRepository implements TradeRepository {
     public List<Trade> findRecentBySymbol(String symbol, int limit) {
         String sql = "SELECT id, symbol, buy_order_id, sell_order_id, price, quantity, timestamp_ns FROM trades WHERE symbol = ? ORDER BY timestamp_ns DESC LIMIT ?";
         List<Trade> result = new ArrayList<>();
-        try (Connection conn = DriverManager.getConnection(url, user, password);
+        try (Connection conn = dataSource.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, symbol);
             ps.setInt(2, limit);

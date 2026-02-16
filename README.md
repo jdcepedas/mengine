@@ -19,7 +19,7 @@ High-performance matching engine for trading assets (event-driven, containerized
 ```bash
 ./gradlew build
 ./gradlew :mengine-core:installDist
-./gradlew :gateway:installDist
+./gradlew :gateway:bootJar
 ```
 
 ## Run locally (two processes)
@@ -73,6 +73,22 @@ docker-compose up
 | GET | /orders/{id} | Order status (from ME Core) |
 | GET | /orderbook/{symbol} | Order book snapshot (from ME Core) |
 | GET | /trades/{symbol} | Recent trades (from DB) |
+| GET | /partition/{symbol} | Which partition (ME Core index) the symbol is routed to (for testing) |
+
+**ME Core Query API** (per instance, for Gateway and health):
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | /orderbook/{symbol} | Order book snapshot |
+| GET | /orders/{id} | Order status |
+| GET | /metrics | Counters: matchesTotal, droppedOrdersTotal |
+| GET | /ready | Readiness: 200 if Aeron subscription has image, else 503 |
+
+### Symbol partitioning (multiple ME Cores)
+
+When `GW_ME_CORE_URLS` and `GW_AERON_STREAM_IDS` define multiple partitions, orders are routed by **symbol**. By default **`GW_SYMBOLS`** is `AAPL,MSFT`: symbol at index *i* is assigned to partition *i* % *P*, so **AAPL** → partition 0 (first ME Core) and **MSFT** → partition 1 (second ME Core). You can override with more symbols (e.g. `GW_SYMBOLS=AAPL,MSFT,GOOG,AMZN` with 2 partitions: AAPL, GOOG → 0; MSFT, AMZN → 1). Symbols not listed fall back to hash-based routing.
+
+Use `GET /partition/{symbol}` to see which partition a symbol uses.
 
 ### Order request (POST /orders)
 
@@ -98,6 +114,8 @@ docker-compose up
 - `ME_BUFFER_SIZE`, `ME_MATCHING_TIMEOUT_MS`, `ME_STANDARD_DELAY_MS`
 - `ME_LATENCY_LOG_ENABLED` – enable matching latency log (default `false`)
 - `ME_LATENCY_LOG_PATH` – path for latency CSV file (default `{ME_JOURNAL_DIR}/matching_latency.log`)
+- `ME_TRACE_LOGGING` – enable hot-path logging (default `false`; set `true` for debugging)
+- `ME_PARTITION_INDEX` – when set, stream ID = 10 + index (for symbol-partitioned deployments)
 
 **Gateway** – env / `gateway.properties`:
 
@@ -105,6 +123,9 @@ docker-compose up
 - `GW_AERON_CHANNEL`, `GW_AERON_STREAM_ID`
 - `GW_AERON_DIR` – connect to existing driver (no launch)
 - `GW_ME_CORE_URL` (default http://localhost:8081)
+- `GW_ME_CORE_URLS` – comma-separated ME Core base URLs for partitioning (e.g. `http://me-core:8081,http://me-core-1:8082`)
+- `GW_AERON_STREAM_IDS` – comma-separated stream IDs (e.g. `10,11`); must match ME Core instances
+- `GW_SYMBOLS` – comma-separated symbol list for explicit partition mapping (default `AAPL,MSFT`). Symbol at index *i* goes to partition *i* % *P* (e.g. AAPL → 0, MSFT → 1 with two partitions). Symbols not in the list fall back to hash-based routing.
 - `GW_DB_URL`, `GW_DB_USER`, `GW_DB_PASSWORD` – for GET /trades
 
 ## Matching latency measurement
