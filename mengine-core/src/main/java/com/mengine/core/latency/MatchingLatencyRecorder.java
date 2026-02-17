@@ -51,13 +51,22 @@ public class MatchingLatencyRecorder {
         long nowEpochNs = nowInstant.getEpochSecond() * 1_000_000_000L + nowInstant.getNano();
         long e2eLatencyNs = -1L;
         long e2eLatencyMs = -1L;
-        if (order.getApiReceivedAtEpochNs() > 0) {
-            e2eLatencyNs = nowEpochNs - order.getApiReceivedAtEpochNs();
-            if (e2eLatencyNs < 0) e2eLatencyNs = -1L;
-            e2eLatencyMs = e2eLatencyNs >= 0 ? e2eLatencyNs / 1_000_000 : -1L;
-        } else if (order.getApiReceivedAtEpochMs() > 0) {
-            e2eLatencyMs = timestampMs - order.getApiReceivedAtEpochMs();
-            if (e2eLatencyMs < 0) e2eLatencyMs = -1L;
+        long apiReceivedNs = order.getApiReceivedAtEpochNs();
+        if (apiReceivedNs > 0) {
+            e2eLatencyNs = nowEpochNs - apiReceivedNs;
+            if (e2eLatencyNs < 0) {
+                // Clock skew or time went backwards - invalidate
+                e2eLatencyNs = -1L;
+            } else {
+                e2eLatencyMs = e2eLatencyNs / 1_000_000;
+            }
+        } else {
+            // Fallback to milliseconds if nanoseconds not available (backward compatibility)
+            long apiReceivedMs = order.getApiReceivedAtEpochMs();
+            if (apiReceivedMs > 0) {
+                e2eLatencyMs = timestampMs - apiReceivedMs;
+                if (e2eLatencyMs < 0) e2eLatencyMs = -1L;
+            }
         }
         LatencyRecord rec = new LatencyRecord(
                 order.getId(),
