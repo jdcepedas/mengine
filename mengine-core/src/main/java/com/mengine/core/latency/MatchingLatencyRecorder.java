@@ -9,6 +9,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
@@ -40,13 +41,21 @@ public class MatchingLatencyRecorder {
 
     /**
      * Record latency for one order. No-op if disabled or queue full (never blocks).
-     * e2eLatencyMs = time from API receive to match (when order has apiReceivedAtEpochMs set).
+     * e2eLatencyNs = time from API receive to match in nanoseconds (when apiReceivedAtEpochNs set).
+     * e2eLatencyMs = same in milliseconds (for backward compatibility).
      */
     public void record(Order order, MatchResult result) {
         if (!enabled || queue == null) return;
         long timestampMs = System.currentTimeMillis();
+        Instant nowInstant = Instant.now();
+        long nowEpochNs = nowInstant.getEpochSecond() * 1_000_000_000L + nowInstant.getNano();
+        long e2eLatencyNs = -1L;
         long e2eLatencyMs = -1L;
-        if (order.getApiReceivedAtEpochMs() > 0) {
+        if (order.getApiReceivedAtEpochNs() > 0) {
+            e2eLatencyNs = nowEpochNs - order.getApiReceivedAtEpochNs();
+            if (e2eLatencyNs < 0) e2eLatencyNs = -1L;
+            e2eLatencyMs = e2eLatencyNs >= 0 ? e2eLatencyNs / 1_000_000 : -1L;
+        } else if (order.getApiReceivedAtEpochMs() > 0) {
             e2eLatencyMs = timestampMs - order.getApiReceivedAtEpochMs();
             if (e2eLatencyMs < 0) e2eLatencyMs = -1L;
         }
@@ -59,7 +68,8 @@ public class MatchingLatencyRecorder {
                 result.getTrades().size(),
                 result.getMatchingTimeNs(),
                 timestampMs,
-                e2eLatencyMs
+                e2eLatencyMs,
+                e2eLatencyNs
         );
         boolean offered = queue.offer(rec);
         if (!offered) {
@@ -107,7 +117,7 @@ public class MatchingLatencyRecorder {
                 Files.createDirectories(parent);
             }
             try (BufferedWriter out = Files.newBufferedWriter(logPath, StandardCharsets.UTF_8)) {
-                out.write("orderId,symbol,type,matched,partial,tradeCount,latencyNs,timestampMs,e2eLatencyMs");
+                out.write("orderId,symbol,type,matched,partial,tradeCount,latencyNs,timestampMs,e2eLatencyMs,e2eLatencyNs");
                 out.newLine();
                 out.flush();
                 while (running.get() || !queue.isEmpty()) {
@@ -147,6 +157,8 @@ public class MatchingLatencyRecorder {
         out.write(String.valueOf(rec.timestampMs));
         out.write(',');
         out.write(rec.e2eLatencyMs >= 0 ? String.valueOf(rec.e2eLatencyMs) : "");
+        out.write(',');
+        out.write(rec.e2eLatencyNs >= 0 ? String.valueOf(rec.e2eLatencyNs) : "");
         out.newLine();
     }
 
@@ -169,9 +181,11 @@ public class MatchingLatencyRecorder {
         final long timestampMs;
         /** End-to-end latency ms (API receive to match); -1 if not available. */
         final long e2eLatencyMs;
+        /** End-to-end latency ns (API receive to match); -1 if not available. */
+        final long e2eLatencyNs;
 
         LatencyRecord(String orderId, String symbol, OrderType type, boolean matched, boolean partial,
-                      int tradeCount, long latencyNs, long timestampMs, long e2eLatencyMs) {
+                      int tradeCount, long latencyNs, long timestampMs, long e2eLatencyMs, long e2eLatencyNs) {
             this.orderId = orderId;
             this.symbol = symbol;
             this.type = type;
@@ -181,6 +195,7 @@ public class MatchingLatencyRecorder {
             this.latencyNs = latencyNs;
             this.timestampMs = timestampMs;
             this.e2eLatencyMs = e2eLatencyMs;
+            this.e2eLatencyNs = e2eLatencyNs;
         }
     }
 }

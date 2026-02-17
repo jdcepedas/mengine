@@ -21,6 +21,7 @@ import org.springframework.web.bind.annotation.RestController;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -53,8 +54,9 @@ public class GatewayRestController {
                         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(OrderResponse.rejected("Invalid order"));
                     }
                     String orderId = "O" + UUID.randomUUID().toString().replace("-", "").substring(0, 12);
-                    long apiReceivedAtEpochMs = System.currentTimeMillis();
-                    Order order = Order.createWithApiReceivedAt(orderId, req.symbol(), req.type(), req.price(), req.quantity(), apiReceivedAtEpochMs);
+                    Instant now = Instant.now();
+                    long apiReceivedAtEpochNs = now.getEpochSecond() * 1_000_000_000L + now.getNano();
+                    Order order = Order.createWithApiReceivedAt(orderId, req.symbol(), req.type(), req.price(), req.quantity(), apiReceivedAtEpochNs);
                     orderSymbolCache.put(orderId, req.symbol());
                     if (!orderPublisherRouter.publish(order)) {
                         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(OrderResponse.bufferFull(orderId));
