@@ -1,0 +1,42 @@
+plugins {
+    id 'java'
+    id 'application'
+}
+
+dependencies {
+    implementation project(':mengine-shared')
+    implementation 'com.lmax:disruptor:3.4.4'
+    implementation 'io.aeron:aeron-client:1.48.6'
+    implementation 'io.aeron:aeron-driver:1.48.6'
+    implementation 'org.glassfish.grizzly:grizzly-http-server:2.4.4'
+    implementation 'com.fasterxml.jackson.core:jackson-databind:2.15.2'
+    implementation 'org.postgresql:postgresql:42.6.0'
+    implementation 'com.zaxxer:HikariCP:5.1.0'
+
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.10.0'
+}
+
+test {
+    useJUnitPlatform()
+}
+
+application {
+    mainClass = 'com.mengine.core.MatchingEngineMain'
+    applicationDefaultJvmArgs = [
+        '--add-opens=java.base/jdk.internal.misc=ALL-UNNAMED',
+        '--add-opens=java.base/jdk.internal.reflect=ALL-UNNAMED'
+    ]
+}
+
+// Apply add-opens to ALL JavaExec tasks so IntelliJ "Run MatchingEngineMain.main()" gets them too.
+tasks.withType(JavaExec).configureEach {
+    jvmArgs(
+        '--add-opens=java.base/jdk.internal.misc=ALL-UNNAMED',
+        '--add-opens=java.base/jdk.internal.reflect=ALL-UNNAMED'
+    )
+}
+
+// Ensure :mengine-core:run uses the correct main class when running from CLI.
+tasks.named('run', JavaExec).configure {
+    mainClass = 'com.mengine.core.MatchingEngineMain'
+}

@@ -1,42 +1,97 @@
 # Matching Engine (ME)
 
-A high-performance matching engine for trading assets, similar to a stock exchange. Acts as an intermediary between sellers and buyers with an in-memory order book serving as legal guarantee.
+High-performance matching engine for trading assets (event-driven, containerized).
 
-## Features
+## Modules
 
-- **Order Management**: Validates and processes sell offers and buy requests
-- **In-Memory Order Book**: Lock-free data structures for each asset symbol
-- **Matching Engine**: Price-time priority matching with < 200ms latency
-- **Reactive Buffer**: LMAX Disruptor for burst absorption (65,536 capacity)
-- **Notification Service**: Premium (real-time) and Standard (delayed) tiers
-- **Analytics Module**: Trade volume, price statistics, fill rates
+- **mengine-shared** – Order, Trade, DTOs, JSON codecs for Aeron
+- **mengine-core** – Matching Engine Core: Aeron subscriber → Input Disruptor (Matcher + Journaler) → Output Disruptor (DB writer + Notification), Query API
+- **gateway** – HTTP API: POST /orders → Aeron; GET /orderbook, /orders, /trades → ME Core + DB
 
 ## Requirements
 
 - Java 21
 - Gradle 8.5+ (wrapper included)
+- Optional: Docker, PostgreSQL (for trade persistence)
 
-## Build & Run
+## Build
 
 ```bash
 ./gradlew build
-./gradlew run
+./gradlew :mengine-core:installDist
+./gradlew :gateway:bootJar
 ```
 
-Server starts on port 8080 (configurable via `ME_SERVER_PORT`).
+## Run locally (two processes)
 
-## REST API
+**Order matters:** Gateway must start first and own the Media Driver. ME Core must connect to that same directory.
+
+**1. Start Gateway** (runs Media Driver, HTTP on 8080):
+
+```bash
+./gradlew :gateway:run
+```
+
+In the console you must see:
+- `[Gateway] Media Driver LAUNCHED at: /some/path/...`
+- `[Gateway] >>> Start ME Core with: export ME_AERON_DIR=/some/path/...`
+- `[Gateway] Aeron client connecting to directory: /some/path/...`
+
+Copy the **exact** path from that output.
+
+**2. In a second terminal**, start ME Core using that path. You must set `ME_AERON_DIR` so ME Core connects to the same Media Driver as the Gateway: either **export** it in the shell, or set it in your IDE (e.g. IntelliJ: Run → Edit Configurations → select mengine-core → Environment variables: `ME_AERON_DIR=/paste/the/exact/path/from/Gateway`).
+
+```bash
+export ME_AERON_DIR=/paste/the/exact/path/from/Gateway
+./gradlew :mengine-core:run
+```
+
+In ME Core’s console you must see:
+- `[ME Core] Subscription created: ... aeronDir=/same/path`
+- `[ME Core] Connecting to EXISTING driver (Gateway must have started first)`
+- After a few seconds: `[ME Core] Subscription has image(s): imageCount=1 (publication connected - ready for orders)`
+
+**3. Only after** you see `imageCount=1` in ME Core, send POST /orders to the Gateway. If you see `[ME Core] Waiting for publication (imageCount=0)` every 5s, the directory does not match or Gateway was not started first – stop ME Core, start Gateway first, then ME Core with the path Gateway printed.
+
+## Run with Docker
+
+```bash
+./gradlew :mengine-core:installDist :gateway:installDist
+./gradlew :mengine-shared:jar :gateway:bootJar :mengine-core:installDist
+docker-compose build
+docker-compose up
+```
+
+- Gateway: http://localhost:8080  
+- ME Core Query API: http://localhost:8081  
+- PostgreSQL: localhost:5432 (user/pass: mengine/mengine)
+
+## REST API (Gateway)
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | /orders | Submit order (BUY/SELL) |
-| GET | /orders/{id} | Get order status |
-| GET | /orderbook/{symbol} | Get order book state |
-| GET | /trades/{symbol} | Get recent trades |
-| GET | /analytics/{symbol} | Get analytics report |
-| POST | /subscribe | Subscribe to events |
+| POST | /orders | Submit order (body: symbol, type, price, quantity) |
+| GET | /orders/{id} | Order status (from ME Core) |
+| GET | /orderbook/{symbol} | Order book snapshot (from ME Core) |
+| GET | /trades/{symbol} | Recent trades (from DB) |
+| GET | /partition/{symbol} | Which partition (ME Core index) the symbol is routed to (for testing) |
 
-### Order Request (POST /orders)
+**ME Core Query API** (per instance, for Gateway and health):
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | /orderbook/{symbol} | Order book snapshot |
+| GET | /orders/{id} | Order status |
+| GET | /metrics | Counters: matchesTotal, droppedOrdersTotal |
+| GET | /ready | Readiness: 200 if Aeron subscription has image, else 503 |
+
+### Symbol partitioning (multiple ME Cores)
+
+When `GW_ME_CORE_URLS` and `GW_AERON_STREAM_IDS` define multiple partitions, orders are routed by **symbol**. By default **`GW_SYMBOLS`** is `AAPL,MSFT`: symbol at index *i* is assigned to partition *i* % *P*, so **AAPL** → partition 0 (first ME Core) and **MSFT** → partition 1 (second ME Core). You can override with more symbols (e.g. `GW_SYMBOLS=AAPL,MSFT,GOOG,AMZN` with 2 partitions: AAPL, GOOG → 0; MSFT, AMZN → 1). Symbols not listed fall back to hash-based routing.
+
+Use `GET /partition/{symbol}` to see which partition a symbol uses.
+
+### Order request (POST /orders)
 
 ```json
 {
@@ -49,39 +104,82 @@ Server starts on port 8080 (configurable via `ME_SERVER_PORT`).
 
 ## Configuration
 
-Environment variables (override defaults):
+**ME Core** – env / `mengine.properties`:
 
-- `ME_BUFFER_SIZE` - Ring buffer size (default: 65536)
-- `ME_MATCHING_TIMEOUT_MS` - Match timeout (default: 200)
-- `ME_STANDARD_DELAY_MS` - Standard tier delay (default: 1000)
-- `ME_SERVER_PORT` - HTTP port (default: 8080)
-- `ME_MATCHING_THREADS` - Matching threads (default: 4)
-- `ME_TRADE_STORE_SIZE` - Max trades per symbol (default: 1000)
+- `ME_QUERY_PORT` (default 8081)
+- `ME_AERON_CHANNEL` (default `aeron:ipc`)
+- `ME_AERON_STREAM_ID` (default 10)
+- `ME_AERON_DIR` – media driver directory (for shared driver with Gateway)
+- `ME_JOURNAL_DIR` – order journal directory (default `journal`)
+- `ME_DB_URL`, `ME_DB_USER`, `ME_DB_PASSWORD` – trades DB (empty = in-memory)
+- `ME_BUFFER_SIZE`, `ME_MATCHING_TIMEOUT_MS`, `ME_STANDARD_DELAY_MS`
+- `ME_LATENCY_LOG_ENABLED` – enable matching latency log (default `false`)
+- `ME_LATENCY_LOG_PATH` – path for latency CSV file (default `{ME_JOURNAL_DIR}/matching_latency.log`)
+- `ME_TRACE_LOGGING` – enable hot-path logging (default `false`; set `true` for debugging)
+- `ME_PARTITION_INDEX` – when set, stream ID = 10 + index (for symbol-partitioned deployments)
 
-Config file: `mengine.properties` or `~/.mengine.properties`
+**Gateway** – env / `gateway.properties`:
 
-## Load Testing
+- `GW_HTTP_PORT` (default 8080)
+- `GW_AERON_CHANNEL`, `GW_AERON_STREAM_ID`
+- `GW_AERON_DIR` – connect to existing driver (no launch)
+- `GW_ME_CORE_URL` (default http://localhost:8081)
+- `GW_ME_CORE_URLS` – comma-separated ME Core base URLs for partitioning (e.g. `http://me-core:8081,http://me-core-1:8082`)
+- `GW_AERON_STREAM_IDS` – comma-separated stream IDs (e.g. `10,11`); must match ME Core instances
+- `GW_SYMBOLS` – comma-separated symbol list for explicit partition mapping (default `AAPL,MSFT`). Symbol at index *i* goes to partition *i* % *P* (e.g. AAPL → 0, MSFT → 1 with two partitions). Symbols not in the list fall back to hash-based routing.
+- `GW_DB_URL`, `GW_DB_USER`, `GW_DB_PASSWORD` – for GET /trades
 
-Run with JMeter or the included load test:
+## Matching latency measurement
 
-```bash
-./gradlew run &   # Start server
-./gradlew test --tests "com.mengine.LoadTest"  # Run load tests (remove @Disabled first)
+ME Core can log per-order matching latency to a CSV file for analysis. The feature is **off by default** so the hot path is unaffected until you enable it.
+
+### Enabling the latency log
+
+1. **Set the enable flag** (environment or config file):
+   - **Environment:** `export ME_LATENCY_LOG_ENABLED=true`
+   - **Properties file** (`mengine.properties` or `config/mengine.properties`): `me.latency.log.enabled=true`
+
+2. **Optional – log file path** (default is `{ME_JOURNAL_DIR}/matching_latency.log`, e.g. `journal/matching_latency.log`):
+   - **Environment:** `export ME_LATENCY_LOG_PATH=/var/log/me/matching_latency.log`
+   - **Properties:** `me.latency.log.path=/var/log/me/matching_latency.log`
+
+3. **Restart ME Core** so it picks up the config. The latency writer thread starts with the input disruptor and creates the file (and parent directories) on first write.
+
+### How it works
+
+- **Hot path:** After each `match(order)` call, the disruptor handler builds a small record (order id, symbol, type, matched/partial, trade count, latency in nanoseconds, timestamp) and **offers** it to a bounded queue. No I/O and no blocking on the matching thread; if the queue is full, the record is dropped.
+- **Background writer:** A single daemon thread drains the queue and appends one CSV line per order to the log file. Writes are buffered and flushed every 100 records (and on shutdown) to limit syscalls.
+- **Shutdown:** When ME Core exits, the recorder is stopped: the writer drains remaining records, flushes, and closes the file.
+
+### Log format
+
+The file is CSV with a header line, then one row per order:
+
+```text
+orderId,symbol,type,matched,partial,tradeCount,latencyNs,timestampMs
+O1,AAPL,BUY,true,false,1,1240625,1739123456789
+O2,AAPL,SELL,false,true,1,24250,1739123456795
 ```
 
-Target SLAs:
-- Ingestion: < 0.5s (sell), < 0.3s (buy)
-- Matching: < 200ms
-- Throughput: 1,300 orders/min baseline, 5,000 matches/min peak
+- **orderId** – order identifier  
+- **symbol** – instrument  
+- **type** – `BUY` or `SELL`  
+- **matched** – order fully filled  
+- **partial** – order partially filled  
+- **tradeCount** – number of trades produced by this order  
+- **latencyNs** – matching duration in nanoseconds (from entry to exit of `match()`)  
+- **timestampMs** – time when the record was taken (milliseconds since epoch)
+
+You can open the file in a spreadsheet or use scripts to compute percentiles (e.g. p50, p99) and correlate with order flow.
 
 ## Architecture
 
 ```
-Client → Reactive Buffer (Disruptor) → Order Processor
-                                            ↓
-                              Matching Engine ↔ Order Book
-                                            ↓
-                              Notification Service → Subscribers
-                                            ↓
-                              Analytics Module
+Gateway (HTTP) → Aeron (orders) → ME Core
+  ↓                    ↓
+  GET /orderbook,      Aeron poller → Input Disruptor
+  GET /orders    ←         ↓
+  (ME Core)           Matcher + Journaler (orders to disk)
+  GET /trades              ↓
+  (DB)               Output Disruptor → DB writer + Notification
 ```
